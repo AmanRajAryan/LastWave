@@ -46,7 +46,7 @@ A Material You Android app that generates playlists from your Last.fm history.
 - **CSV** – Opens share sheet, save anywhere
 - **M3U** – Standard playlist file for media players
 - **Share** – Text list via any app (WhatsApp, notes, etc.)
-- **Spotify** – Searches the first track on Spotify
+- **You Tube** – Searches the first track on Spotify
 
 ---
 
