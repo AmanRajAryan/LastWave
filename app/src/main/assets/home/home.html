@@ -1,0 +1,143 @@
+<!-- ════════════════════════════════════════════════════════
+     home.html — Home screen  ·  Material You redesign
+     Styles → home.css   |   Logic → home.js
+     ════════════════════════════════════════════════════════ -->
+
+<div class="page-scroll home-screen">
+
+  <!-- ── Username entry (shown when no user saved) ──────────── -->
+  <div id="homeUsernameSection" class="home-username-card hidden">
+    <div class="home-username-label">Last.fm Username</div>
+    <div class="home-username-row">
+      <input
+        type="text"
+        id="homeUsernameInput"
+        class="home-text-input"
+        placeholder="Enter username…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button class="home-go-btn" onclick="saveUsername()">Go</button>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       HEADER ROW — username left · live listening timer right
+       ══════════════════════════════════════════════════════════ -->
+  <div id="homeHeader" class="home-header-row hidden">
+    <div class="home-header-user">
+      <div class="home-username-pill">
+        <span class="home-header-username" id="homeHeaderUsername">—</span>
+      </div>
+    </div>
+    <div class="home-header-timer" id="homeListenTimer" title="Total listening time">
+      <span class="material-symbols-rounded home-timer-icon">headphones</span>
+      <span class="home-timer-value" id="homeTimerValue">––:––:––:––</span>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       STATS CARD — scrobbles + tracks / artist / album
+       ══════════════════════════════════════════════════════════ -->
+  <div id="userProfileCard" class="home-stats-card hidden">
+
+    <div class="home-scrobbles-row">
+      <div class="home-scrobbles-balancer" aria-hidden="true"></div>
+      <div class="home-scrobbles-center">
+        <span class="home-scrobbles-count" id="profileScrobbles">—</span>
+        <span class="home-scrobbles-label">Scrobbles</span>
+      </div>
+      <button class="home-scrobbles-arrow" onclick="navigateTo('genres')" aria-label="View your genres">
+        <span class="material-symbols-rounded">arrow_forward_ios</span>
+      </button>
+    </div>
+
+    <div class="home-stats-divider"></div>
+
+    <div class="home-stats-row">
+      <div class="home-stat-item">
+        <div class="home-stat-label">Tracks</div>
+        <div class="home-stat-value" id="statTracks">—</div>
+      </div>
+      <div class="home-stat-sep"></div>
+      <div class="home-stat-item">
+        <div class="home-stat-label">Artists</div>
+        <div class="home-stat-value" id="statArtists">—</div>
+      </div>
+      <div class="home-stat-sep"></div>
+      <div class="home-stat-item">
+        <div class="home-stat-label">Albums</div>
+        <div class="home-stat-value" id="statAlbums">—</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       LIST CARD — sortable scrollable track list
+       ══════════════════════════════════════════════════════════ -->
+  <div id="dailyMixCard" class="home-mix-card hidden">
+
+    <div class="home-mix-header">
+      <span class="home-mix-title">List</span>
+
+      <div class="home-sort-wrap" id="homeSortWrap">
+        <button
+          class="home-sort-btn"
+          id="homeSortBtn"
+          onclick="toggleSortMenu()"
+          aria-label="Sort options"
+          aria-haspopup="true"
+        >
+          <span class="material-symbols-rounded">sort</span>
+          <span class="home-sort-label" id="homeSortLabel">Recent</span>
+          <span class="material-symbols-rounded home-sort-chevron" id="homeSortChevron">expand_more</span>
+        </button>
+
+        <div class="home-sort-menu hidden" id="homeSortMenu" role="menu">
+          <button class="home-sort-option active" id="sortOptRecent"
+                  onclick="setSortMode('recent')" role="menuitem">
+            <span class="material-symbols-rounded">schedule</span>
+            Recent
+            <span class="material-symbols-rounded home-sort-check" id="checkRecent">check</span>
+          </button>
+          <button class="home-sort-option" id="sortOptMostPlayed"
+                  onclick="setSortMode('mostPlayed')" role="menuitem">
+            <span class="material-symbols-rounded">bar_chart</span>
+            Most Played
+            <span class="material-symbols-rounded home-sort-check hidden" id="checkMostPlayed">check</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="home-list-divider"></div>
+
+    <div id="dailyMixList" class="home-mix-list home-mix-scroll">
+      <!-- Populated by home.js -->
+    </div>
+
+  </div>
+
+  <!-- Loading skeleton -->
+  <div id="homeSkeleton" class="home-skeleton hidden">
+    <div class="skel-card">
+      <div class="skel-line skel-short"></div>
+      <div class="skel-line skel-tall"></div>
+      <div class="skel-row" style="gap:12px">
+        <div class="skel-block"></div>
+        <div class="skel-block"></div>
+        <div class="skel-block"></div>
+      </div>
+    </div>
+    <div class="skel-card">
+      <div class="skel-line skel-medium"></div>
+      <div class="skel-track"></div>
+      <div class="skel-track"></div>
+      <div class="skel-track"></div>
+      <div class="skel-track"></div>
+      <div class="skel-track"></div>
+    </div>
+  </div>
+
+</div>

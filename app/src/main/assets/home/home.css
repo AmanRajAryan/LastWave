@@ -1,0 +1,822 @@
+/* ════════════════════════════════════════════════════════════
+   home.css — Home screen styles  ·  Material You redesign
+   ════════════════════════════════════════════════════════════ */
+
+/* ── Page root ────────────────────────────────────────────── */
+.home-screen {
+  padding: 16px 16px calc(var(--nav-height, 76px) + var(--safe-bottom, 0px) + 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--md-background);
+  box-sizing: border-box;
+}
+
+/* ══════════════════════════════════════════════════════════
+   HEADER ROW — username + live timer
+   ══════════════════════════════════════════════════════════ */
+.home-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px 2px;
+  gap: 12px;
+}
+
+.home-header-user {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+/* ── Username pill ─────────────────────────────────────────── */
+.home-username-pill {
+  display: inline-flex;
+  align-items: center;
+  background: var(--md-surface-container-high);
+  border-radius: 100px;
+  padding: 6px 14px;
+  max-width: 200px;
+  overflow: hidden;
+}
+
+.home-header-username {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--md-on-surface-variant);
+  letter-spacing: 0.6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Unicode small-caps applied via JS */
+}
+
+/* ── Live listening time counter ──────────────────────────── */
+.home-header-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--md-surface-container);
+  border-radius: 100px;
+  padding: 7px 13px 7px 10px;
+  flex-shrink: 0;
+}
+
+.home-timer-icon {
+  font-size: 16px;
+  color: var(--md-primary);
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+}
+
+.home-timer-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--md-on-surface);
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+  /* monospace digits so width doesn't jump */
+  font-feature-settings: "tnum";
+}
+
+/* When a track is actively playing — pill glows, icon pulses */
+.home-header-timer.timer-live {
+  background: color-mix(in srgb, var(--md-primary-container) 55%, transparent);
+}
+.home-header-timer.timer-live .home-timer-icon {
+  animation: timerPulse 1.6s ease-in-out infinite;
+}
+.home-header-timer.timer-live .home-timer-value {
+  color: var(--md-primary);
+}
+
+@keyframes timerPulse {
+  0%, 100% { opacity: 1;    transform: scale(1);    }
+  50%       { opacity: 0.6; transform: scale(0.88); }
+}
+
+/* ══════════════════════════════════════════════════════════
+   USERNAME ENTRY CARD
+   ══════════════════════════════════════════════════════════ */
+.home-username-card {
+  background: var(--md-surface-container);
+  border-radius: 20px;
+  padding: 20px;
+}
+.home-username-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--md-outline);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  margin-bottom: 14px;
+}
+.home-username-row { display: flex; gap: 10px; }
+.home-text-input {
+  flex: 1;
+  background: var(--md-surface-container-high);
+  border: none;
+  border-bottom: 1.5px solid var(--md-outline-variant);
+  border-radius: var(--radius-sm) var(--radius-sm) 4px 4px;
+  padding: 13px 14px;
+  color: var(--md-on-surface);
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.home-text-input::placeholder { color: var(--md-outline); }
+.home-text-input:focus {
+  border-bottom-color: var(--md-primary);
+  box-shadow: 0 1px 0 var(--md-primary);
+}
+.home-go-btn {
+  background: var(--md-primary-container);
+  color: var(--md-on-primary-container);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 13px 22px;
+  font-size: 15px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.home-go-btn:active { opacity: 0.82; transform: scale(0.97); }
+
+/* ══════════════════════════════════════════════════════════
+   STATS CARD  —  slightly compact to give list more room
+   ══════════════════════════════════════════════════════════ */
+.home-stats-card {
+  background: var(--md-surface-container);
+  border-radius: 22px;
+  padding: 10px 20px 10px;          /* tighter top/bottom */
+  transition: box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              transform  0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: center top;
+}
+
+.home-scrobbles-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;               /* was 12px */
+}
+/* Balancer mirrors the 40px arrow button on the right so the center
+   div sits exactly in the middle of the full card width            */
+.home-scrobbles-balancer {
+  width: 40px;
+  flex-shrink: 0;
+}
+
+/* Count + label — perfectly centred between balancer and arrow */
+.home-scrobbles-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 3px;
+}
+.home-scrobbles-count {
+  font-size: 38px;                  /* was 42px — slightly more compact */
+  font-weight: 700;
+  color: var(--md-on-surface);
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+.home-scrobbles-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--md-on-surface-variant);
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
+}
+.home-scrobbles-arrow {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: var(--md-surface-container-high);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; flex-shrink: 0;
+  transition: background 0.15s, transform 0.15s;
+}
+.home-scrobbles-arrow .material-symbols-rounded {
+  font-size: 18px;
+  color: var(--md-on-surface-variant);
+}
+.home-scrobbles-arrow:active {
+  background: var(--md-surface-container-highest);
+  transform: scale(0.93);
+}
+
+.home-stats-divider {
+  height: 1px;
+  background: color-mix(in srgb, var(--md-outline-variant) 50%, transparent);
+  margin-bottom: 8px;               /* was 10px */
+}
+
+.home-stats-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+.home-stat-item { flex: 1; text-align: center; }
+.home-stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--md-outline);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 5px;
+}
+.home-stat-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--md-on-surface);
+  letter-spacing: -0.3px;
+}
+.home-stat-sep {
+  width: 1px;
+  height: 30px;
+  background: color-mix(in srgb, var(--md-outline-variant) 50%, transparent);
+}
+
+/* ══════════════════════════════════════════════════════════
+   LIST CARD
+   ══════════════════════════════════════════════════════════ */
+.home-mix-card {
+  background: var(--md-surface-container);
+  border-radius: 22px;
+  padding: 18px 0 14px;             /* 14px bottom = visible card floor below last item */
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.home-mix-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px 14px;
+}
+.home-mix-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--md-on-surface);
+  letter-spacing: -0.3px;
+}
+
+/* Fix 5: STATIC divider between header and scrollable list.
+   Lives outside .home-mix-scroll so it never scrolls away. */
+.home-list-divider {
+  height: 1px;
+  background: color-mix(in srgb, var(--md-outline-variant) 55%, transparent);
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* ── Sort button + dropdown ────────────────────────────────── */
+.home-sort-wrap {
+  position: relative;
+}
+
+.home-sort-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--md-surface-container-high);
+  border: none;
+  border-radius: 100px;
+  padding: 7px 10px 7px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--md-on-surface-variant);
+  font-family: inherit;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-sort-btn .material-symbols-rounded { font-size: 18px; }
+.home-sort-btn:active { background: var(--md-surface-container-highest); }
+
+.home-sort-label { font-size: 13px; font-weight: 600; }
+
+.home-sort-chevron {
+  font-size: 18px;
+  transition: transform 0.2s cubic-bezier(0.4,0,0.2,1);
+}
+.home-sort-chevron.open { transform: rotate(180deg); }
+
+/* M3 DropdownMenu */
+.home-sort-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--md-surface-container-highest);
+  border-radius: 14px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.45), 0 1px 4px rgba(0,0,0,0.25);
+  z-index: 200;
+  min-width: 168px;
+  overflow: hidden;
+  animation: sortMenuIn 0.18s cubic-bezier(0.4,0,0.2,1);
+  transform-origin: top right;
+}
+@keyframes sortMenuIn {
+  from { opacity:0; transform: scale(0.88); }
+  to   { opacity:1; transform: scale(1); }
+}
+
+.home-sort-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 16px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--md-on-surface);
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-sort-option .material-symbols-rounded { font-size: 20px; color: var(--md-on-surface-variant); }
+.home-sort-option:active { background: color-mix(in srgb, var(--md-on-surface) 8%, transparent); }
+.home-sort-option.active { color: var(--md-primary); }
+.home-sort-option.active .material-symbols-rounded:first-child { color: var(--md-primary); }
+
+.home-sort-check {
+  margin-left: auto;
+  font-size: 18px;
+  color: var(--md-primary);
+}
+
+/* ── Scrollable track list — LazyColumn equivalent ──────────── */
+.home-mix-list {
+  display: flex;
+  flex-direction: column;
+  /* Must NOT have overflow:hidden here — child scroll needs natural height */
+}
+
+/* Each track item is ~64px tall (9px padding × 2 + 46px art).
+   5 items = 320px. We set 325px so the 5th item is never clipped
+   at the scroll container boundary. padding-bottom adds scroll-through
+   breathing room after the last item. The nav bar gap is handled by
+   the outer .home-screen padding — no 100dvh calc needed.
+   padding-top: 6px gives the first item (especially Now Playing) breathing
+   room from the divider above so it isn't flush-cut at the card edge. */
+.home-mix-scroll {
+  max-height: 325px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  scrollbar-width: none;
+  padding-top: 6px;
+  padding-bottom: 20px;
+}
+.home-mix-scroll::-webkit-scrollbar { display: none; }
+
+/* ── Stats card scroll-scale animation ──────────────────────── */
+/* JS adds .scroll-shrunk via rAF when page scrolls > 20px */
+.home-stats-card.scroll-shrunk {
+  transform: scale(0.98) translateY(-2px);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.22);
+}
+
+/* ── Track item ──────────────────────────────────────────────── */
+.home-track-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 18px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.12s;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-track-item:active {
+  background: color-mix(in srgb, var(--md-on-surface) 6%, transparent);
+}
+
+/* Subtle inset divider — starts after album art */
+.home-track-item + .home-track-item::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 74px; right: 18px;
+  height: 1px;
+  background: color-mix(in srgb, var(--md-outline-variant) 35%, transparent);
+}
+
+.home-track-art-wrap {
+  width: 46px; height: 46px;
+  border-radius: 10px;
+  background: var(--md-surface-container-high);
+  flex-shrink: 0;
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.home-track-art {
+  width: 100%; height: 100%;
+  object-fit: cover; display: block;
+}
+.home-track-art.errored { display: none; }
+.home-track-art-fallback {
+  font-size: 22px;
+  color: var(--md-outline);
+  display: none;
+  font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+}
+.home-track-art.errored ~ .home-track-art-fallback { display: block; }
+
+.home-track-info { flex: 1; min-width: 0; }
+.home-track-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--md-on-surface);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 3px;
+}
+.home-track-artist {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--md-on-surface-variant);
+  /* Allow up to 2 lines for long artist strings like "Artist A, Artist B, Artist C" */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.35;
+}
+.home-track-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--md-outline);
+  flex-shrink: 0;
+  min-width: 28px;
+  text-align: right;
+}
+/* Duplicate-run count badge (×3 etc.) in recent mode */
+.home-track-dup-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--md-primary);
+  background: var(--md-primary-container);
+  border-radius: 8px;
+  padding: 1px 6px;
+  min-width: unset;
+  letter-spacing: 0.3px;
+}
+.home-track-menu {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 2px;
+  flex-shrink: 0;
+  line-height: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.home-track-menu .material-symbols-rounded {
+  font-size: 20px;
+  color: var(--md-outline);
+}
+.home-track-menu:active .material-symbols-rounded { color: var(--md-on-surface-variant); }
+
+/* ══════════════════════════════════════════════════════════
+   NOW PLAYING ROW  — live "pending scrobble" indicator
+   Pure visual layer: no scrobbles are created.
+   ══════════════════════════════════════════════════════════ */
+
+/* Container: tinted with the accent so it pops at the top of the list */
+.home-track-nowplaying {
+  background: color-mix(in srgb, var(--md-primary-container) 28%, transparent);
+  border-radius: 12px;
+  margin: 0 4px 6px;
+  /* ease-out: slides up from below only — never goes above translateY(0) so
+     it is never clipped by the parent card's overflow:hidden boundary.
+     The spring cubic-bezier(0.34,1.56,0.64,1) used to overshoot to ~-3px and
+     that momentary upward excursion was visually cut at the card edge.        */
+  animation: hw-fade-slide 0.28s ease-out both;
+}
+/* No divider line above the Now Playing row */
+.home-track-nowplaying::before { display: none !important; }
+
+/* Art wrap: position relative so the wave overlay can sit on top */
+.home-np-art-wrap {
+  position: relative;
+}
+
+/* ── Music wave bars ─────────────────────────────────────── */
+/* Four animated bars overlaid on the bottom-right of the art */
+.home-np-wave {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+  background: rgba(0, 0, 0, 0.42);
+  border-radius: 5px;
+  padding: 3px 4px 2px;
+  pointer-events: none;
+}
+.home-np-wave span {
+  display: block;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--md-primary);
+  transform-origin: bottom;
+  animation: npWaveBar 0.85s ease-in-out infinite;
+}
+.home-np-wave span:nth-child(1) { height: 55%; animation-delay: 0s;     }
+.home-np-wave span:nth-child(2) { height: 100%; animation-delay: 0.18s; }
+.home-np-wave span:nth-child(3) { height: 40%;  animation-delay: 0.36s; }
+.home-np-wave span:nth-child(4) { height: 75%;  animation-delay: 0.09s; }
+
+@keyframes npWaveBar {
+  0%, 100% { transform: scaleY(0.35); }
+  50%       { transform: scaleY(1);   }
+}
+
+/* ── "Now Playing" badge ─────────────────────────────────── */
+.home-np-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--md-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.9px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding-right: 2px;
+}
+
+/* Pulsing dot next to the label */
+.home-np-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--md-primary);
+  flex-shrink: 0;
+  animation: npDotPulse 1.5s ease-in-out infinite;
+}
+@keyframes npDotPulse {
+  0%, 100% { transform: scale(1);    opacity: 1;   }
+  50%       { transform: scale(0.45); opacity: 0.35; }
+}
+
+/* ── Keyframes ─────────────────────────────────────────────── */
+/* Natural spring: overshoots ~4% then settles — feels alive    */
+@keyframes hw-spring-up {
+  0%   { opacity: 0; transform: translateY(22px) scale(0.97); }
+  60%  { opacity: 1; transform: translateY(-3px)  scale(1.005); }
+  80%  { transform: translateY(1px)  scale(0.999); }
+  100% { opacity: 1; transform: translateY(0)    scale(1); }
+}
+@keyframes hw-spring-in {
+  0%   { opacity: 0; transform: scale(0.95) translateY(8px); }
+  60%  { opacity: 1; transform: scale(1.01) translateY(-1px); }
+  100% { opacity: 1; transform: scale(1)    translateY(0); }
+}
+@keyframes hw-fade-slide {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes hw-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Entry animation classes (applied + reset by JS on nav) ─── */
+/* Spring easing: cubic-bezier(0.34, 1.56, 0.64, 1) — M3 spring */
+.hw-anim-header {
+  animation: hw-fade-slide 0.30s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+.hw-anim-stats {
+  animation: hw-spring-up  0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 0.05s both;
+}
+.hw-anim-list {
+  animation: hw-spring-up  0.46s cubic-bezier(0.34, 1.56, 0.64, 1) 0.12s both;
+}
+
+/* GPU compositor hint — ONLY on transform+opacity, NO contain rules.
+   contain:layout was removed because it prevents flex children from
+   getting their natural height, which collapsed the scroll list.     */
+#homeHeader     { will-change: transform, opacity; }
+#userProfileCard{ will-change: transform, opacity; }
+/* #dailyMixCard intentionally excluded: its flex children need free height */
+
+/* ── Ripple on track item tap ───────────────────────────────── */
+.home-track-item {
+  position: relative;
+  overflow: hidden;
+}
+.home-track-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--md-on-surface);
+  opacity: 0;
+  transition: opacity 0.32s ease;
+  pointer-events: none;
+}
+.home-track-item:active::after { opacity: 0.07; }
+
+/* ── Button micro-press spring ──────────────────────────────── */
+.home-sort-btn {
+  transition: background 0.15s,
+              transform  0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.home-sort-btn:active { transform: scale(0.91); }
+
+.home-scrobbles-arrow {
+  transition: background 0.15s,
+              transform  0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.home-scrobbles-arrow:active { transform: scale(0.88) !important; }
+
+/* ── Track art micro-press ──────────────────────────────────── */
+.home-track-art-wrap {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.home-track-item:active .home-track-art-wrap {
+  transform: scale(0.90);
+}
+
+/* ── Scroll elevation: card header lifts when list scrolled ─── */
+/* JS adds .scrolled via requestAnimationFrame — no forced reflow */
+.home-mix-card {
+  transition: box-shadow 0.24s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: box-shadow;
+}
+.home-mix-card.scrolled {
+  box-shadow: 0 6px 28px rgba(0,0,0,0.32), 0 2px 8px rgba(0,0,0,0.18);
+}
+
+/* ── Stats card subtle depth on entry ───────────────────────── */
+.home-stats-card {
+  transition: box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Username pill fade ─────────────────────────────────────── */
+.home-username-pill {
+  animation: hw-fade-in 0.26s ease both;
+}
+
+/* ══════════════════════════════════════════════════════════
+   LOADING SKELETON
+   ══════════════════════════════════════════════════════════ */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.skel-card {
+  background: var(--md-surface-container);
+  border-radius: 22px;
+  padding: 22px;
+  margin-bottom: 12px;
+}
+.skel-line, .skel-block, .skel-track {
+  background: linear-gradient(
+    90deg,
+    var(--md-surface-container)      25%,
+    var(--md-surface-container-high) 50%,
+    var(--md-surface-container)      75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+  border-radius: var(--radius-xs);
+}
+.skel-short  { height: 12px; width: 38%; margin-bottom: 18px; border-radius: 6px; }
+.skel-tall   { height: 48px; width: 52%; margin-bottom: 20px; border-radius: 8px; }
+.skel-medium { height: 20px; width: 32%; margin-bottom: 20px; border-radius: 6px; }
+.skel-row    { display: flex; gap: 12px; }
+.skel-block  { flex: 1; height: 34px; border-radius: var(--radius-xs); }
+.skel-track  { height: 52px; width: 100%; border-radius: var(--radius-xs); margin-bottom: 8px; }
+
+/* ── Long-press copy visual feedback ────────────────────────── */
+/* Subtle scale-down during hold — gives tactile feedback */
+.home-track-item:active {
+  background: var(--md-surface-container-high);
+  transform: scale(0.985);
+  transition: transform 0.1s ease, background 0.1s ease;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ENHANCED TRACK ITEM — album + timestamp lines
+   ══════════════════════════════════════════════════════════════ */
+
+.home-track-album {
+  font-size: 11px;
+  color: var(--md-outline);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  line-height: 1.3;
+}
+
+.home-track-time {
+  font-size: 10.5px;
+  color: var(--md-outline);
+  margin-top: 1px;
+  opacity: 0.75;
+  line-height: 1.3;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   TRACK DROPDOWN MENU  — Material You surface
+   ══════════════════════════════════════════════════════════════ */
+
+.track-dropdown-menu {
+  position: fixed;
+  z-index: 9999;
+  width: 224px;
+  background: var(--md-surface-container-highest);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  padding: 6px 0;
+  transform-origin: top right;
+  animation: dropdown-enter 0.18s cubic-bezier(0.34,1.4,0.64,1) both;
+}
+
+.track-dropdown-menu.track-dropdown-leaving {
+  animation: dropdown-leave 0.15s ease-out both;
+}
+
+@keyframes dropdown-enter {
+  from { opacity:0; transform:scale(0.88) translateY(-6px); }
+  to   { opacity:1; transform:scale(1)    translateY(0);    }
+}
+
+@keyframes dropdown-leave {
+  from { opacity:1; transform:scale(1)    translateY(0); }
+  to   { opacity:0; transform:scale(0.92) translateY(-4px); }
+}
+
+.track-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 13px 18px;
+  background: none;
+  border: none;
+  color: var(--md-on-surface);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: background 0.12s;
+  font-family: inherit;
+  letter-spacing: 0.01em;
+}
+
+.track-dropdown-item:active {
+  background: var(--ripple);
+}
+
+.track-dropdown-icon {
+  font-size: 20px;
+  color: var(--md-primary);
+  flex-shrink: 0;
+  font-variation-settings: 'FILL' 1;
+}
+
+/* ── Dropdown header row ("Played: X ago") ───────────────── */
+.track-dropdown-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--md-primary);
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  user-select: none;
+}
+.track-dropdown-header .material-symbols-rounded {
+  font-size: 16px;
+  font-variation-settings: 'FILL' 1;
+}
+.track-dropdown-divider {
+  height: 1px;
+  margin: 0 12px 4px;
+  background: var(--md-outline-variant);
+  opacity: 0.5;
+}
