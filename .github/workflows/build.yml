@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build APK
+    name: Build Debug APK
     runs-on: ubuntu-latest
 
     steps:
@@ -26,24 +26,8 @@ jobs:
       - name: Grant Gradle execute permission
         run: chmod +x gradlew
 
-      - name: Decode Keystore (if available)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > keystore.jks
-        env:
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
-
-      - name: Build Release APK (if keystore available)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        run: ./gradlew assembleRelease --stacktrace
-        env:
-          KEYSTORE_FILE: ${{ github.workspace }}/keystore.jks
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
@@ -51,11 +35,3 @@ jobs:
           name: LastWave-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 14
-
-      - name: Upload Release APK (if built)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: LastWave-Release-APK
-          path: app/build/outputs/apk/release/*.apk
-          retention-days: 30
