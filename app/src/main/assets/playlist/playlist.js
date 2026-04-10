@@ -135,7 +135,79 @@ function _plRenderSaved(highlightNewest) {
     // call bindLongPressCopy themselves in _plEnsureTracksRendered).
     bindLongPressCopy(cardsEl, '[data-lp-name]');
   }
+  _plBindCardLongPress(cardsEl);
   _plRenderRegenBar();
+}
+
+// ── Long-press copy for playlist card titles ──────────────────
+// 500 ms hold on any playlist card header copies the playlist name
+// to clipboard and shows a "Copied" toast. Normal tap (expand/collapse)
+// is NOT affected — the click event is suppressed only after a trigger.
+function _plBindCardLongPress(container) {
+  if (!container) return;
+  const LONG_MS = 500;
+
+  container.querySelectorAll('.pl-card-header').forEach(header => {
+    if (header._plLpBound) return;
+    header._plLpBound = true;
+
+    let _timer     = null;
+    let _startX    = 0;
+    let _startY    = 0;
+    let _triggered = false;
+
+    const cancel = () => { clearTimeout(_timer); _timer = null; };
+
+    header.addEventListener('touchstart', (e) => {
+      _triggered = false;
+      _startX = e.touches[0].clientX;
+      _startY = e.touches[0].clientY;
+      cancel();
+      _timer = setTimeout(() => {
+        _triggered = true;
+        // Read the title baked into the card element at render time —
+        // avoids any _plLoad() lookup ambiguity that could return meta text.
+        const name = (header.closest('.pl-card')?.dataset?.plTitle || '').trim();
+        if (!name) return;
+        console.log('Copied:', name);
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(name)
+            .then(() => showToast('Copied: ' + name, 'success'))
+            .catch(() => _plLpFallback(name));
+        } else {
+          _plLpFallback(name);
+        }
+        try { navigator.vibrate?.(30); } catch {}
+      }, LONG_MS);
+    }, { passive: true });
+
+    header.addEventListener('touchmove', (e) => {
+      const dx = e.touches[0].clientX - _startX;
+      const dy = e.touches[0].clientY - _startY;
+      if (Math.hypot(dx, dy) > 8) cancel();
+    }, { passive: true });
+
+    header.addEventListener('touchend',    cancel, { passive: true });
+    header.addEventListener('touchcancel', cancel, { passive: true });
+
+    // Block the expand/collapse click from firing after a long-press
+    header.addEventListener('click', (e) => {
+      if (_triggered) { e.stopPropagation(); e.preventDefault(); _triggered = false; }
+    });
+  });
+}
+
+function _plLpFallback(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    showToast('Copied: ' + text, 'success');
+  } catch {}
 }
 
 function _plRenderRegenBar() {
@@ -203,7 +275,7 @@ function _plCardHTML(pl, isNewest) {
     : '';
 
   return `
-    <div class="pl-card${isNewest ? ' pl-card-newest' : ''}" data-pl-id="${pl.id}">
+    <div class="pl-card${isNewest ? ' pl-card-newest' : ''}" data-pl-id="${pl.id}" data-pl-title="${escAttr(title)}">
 
       <!-- Header: ONLY this triggers expand/collapse -->
       <div class="pl-card-header" onclick="_plToggle(this.closest('.pl-card'))">
