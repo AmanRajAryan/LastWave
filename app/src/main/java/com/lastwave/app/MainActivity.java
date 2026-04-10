@@ -178,17 +178,23 @@ public class MainActivity extends AppCompatActivity {
         webView.addJavascriptInterface(new AppBridge(), "AndroidBridge");
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
 
-        // FIX: Replaced deprecated onBackPressed() override with the modern
-        // OnBackPressedCallback API (required for API 33+).
+        // Back button: delegate to the JS navigation stack first.
+        // _lwHandleBack() returns true when JS handled it (screen pop),
+        // or false when the stack is empty and the app should exit.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    webView.goBack();
-                } else {
-                    setEnabled(false);
-                    getOnBackPressedDispatcher().onBackPressed();
-                }
+                webView.evaluateJavascript(
+                    "window._lwHandleBack ? String(window._lwHandleBack()) : 'false'",
+                    result -> {
+                        // result is a JSON string — "true" or "false"
+                        if (!"true".equals(result)) {
+                            // JS has nothing to go back to — exit normally
+                            setEnabled(false);
+                            getOnBackPressedDispatcher().onBackPressed();
+                        }
+                    }
+                );
             }
         });
 

@@ -38,6 +38,11 @@ const PAGE_ALIAS = {
 
 const _loadedScreens = new Set();
 
+// ── Navigation history stack ──────────────────────────────────────
+// Tracks screen visits so the hardware back button can unwind correctly.
+// 'home' is the implicit bottom — going back from an empty stack exits.
+let _navHistory = [];
+
 // Fetch an asset with a hard timeout so a slow/unreachable server never
 // blocks navigation. Resolves with the Response or rejects on timeout.
 async function _fetchWithTimeout(url, timeoutMs = 8000) {
@@ -54,7 +59,7 @@ async function _fetchWithTimeout(url, timeoutMs = 8000) {
   }
 }
 
-async function navigateTo(page) {
+async function navigateTo(page, opts) {
   // Resolve alias: 'results' → 'playlist'
   page = PAGE_ALIAS[page] || page;
   
@@ -121,6 +126,12 @@ async function navigateTo(page) {
   
   // 2. Skip if already on this page
   if (state.currentPage === page) return;
+
+  // 3. Record history — skipped for back-navigation so we don't re-push
+  //    the page we just popped. Also skip on the very first load (no currentPage).
+  if (state.currentPage && !(opts && opts.isBack)) {
+    _navHistory.push(state.currentPage);
+  }
   
   // 3. Hide current screen
   if (state.currentPage) {
@@ -278,3 +289,33 @@ function _initRipples(root) {
     el.addEventListener('mouseleave',  () => _end(false));
   });
 }
+// ══════════════════════════════════════════════════════════════
+//  Hardware back-button handler — called by MainActivity.java
+//  via evaluateJavascript("window._lwHandleBack()").
+//
+//  Returns true  → JS handled it (native does nothing).
+//  Returns false → nothing to go back to (native should exit).
+// ══════════════════════════════════════════════════════════════
+window._lwHandleBack = function() {
+  // 1. Let the current screen intercept first.
+  //    Screens register via window._lwScreenBackHandlers[pageName] = fn.
+  //    Example: genres.js closes its detail view before letting nav pop.
+  const screenHandlers = window._lwScreenBackHandlers;
+  if (screenHandlers && typeof screenHandlers[state.currentPage] === 'function') {
+    if (screenHandlers[state.currentPage]()) return true;
+  }
+
+  // 2. Pop the history stack and navigate back.
+  if (_navHistory.length > 0) {
+    const prev = _navHistory.pop();
+    navigateTo(prev, { isBack: true });
+    return true;
+  }
+
+  // 3. Stack is empty — signal native to exit.
+  return false;
+};
+
+// Initialise the screen back-handler registry so screens can register
+// without having to guard for its existence themselves.
+window._lwScreenBackHandlers = window._lwScreenBackHandlers || {};

@@ -1337,7 +1337,7 @@ async function loadUserProfile() {
     const nameEl  = document.getElementById('profileName');
     const scrobEl = document.getElementById('profileScrobbles');
     if (nameEl)  nameEl.textContent  = u.realname || u.name;
-    if (scrobEl) scrobEl.textContent = parseInt(u.playcount || 0).toLocaleString() + ' scrobbles';
+    if (scrobEl) scrobEl.textContent = parseInt(u.playcount || 0).toLocaleString();
 
     const img    = u.image && (u.image.find(i => i.size === 'large') || u.image.find(i => i.size === 'medium') || u.image[0]);
     const imgUrl = img?.['#text'] || '';
@@ -2378,7 +2378,7 @@ function showToast(msg, type) {
 }
 
 // ── Helpers ───────────────────────────────────────────────────
-function esc(str) { if (!str) return ''; return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(str) { if (!str) return ''; return String(str).replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'&quot;'); }
 function escAttr(str) { if (!str) return ''; return String(str).replace(/'/g,"\\'").replace(/"/g,'\\"'); }
 // ══════════════════════════════════════════════════════════════
 //  GLOBAL LONG-PRESS COPY UTILITY

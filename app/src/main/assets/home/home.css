@@ -499,18 +499,34 @@
   background: color-mix(in srgb, var(--md-primary-container) 28%, transparent);
   border-radius: 12px;
   margin: 0 4px 6px;
+  /* Explicit flex constraints prevent Android WebView from stretching the row
+     taller than intended. align-items:center keeps all children vertically
+     centred; flex-wrap:nowrap stops badge/button wrapping to a new line. */
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  min-height: 0;
   /* ease-out: slides up from below only — never goes above translateY(0) so
-     it is never clipped by the parent card's overflow:hidden boundary.
-     The spring cubic-bezier(0.34,1.56,0.64,1) used to overshoot to ~-3px and
-     that momentary upward excursion was visually cut at the card edge.        */
+     it is never clipped by the parent card's overflow:hidden boundary. */
   animation: hw-fade-slide 0.28s ease-out both;
 }
 /* No divider line above the Now Playing row */
 .home-track-nowplaying::before { display: none !important; }
 
-/* Art wrap: position relative so the wave overlay can sit on top */
+/* Badge: force it to stay on one line and vertically centred */
+.home-np-badge {
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* Art wrap: position relative so the wave overlay can sit on top;
+   explicit size + overflow:hidden so the wave never expands the box */
 .home-np-art-wrap {
   position: relative;
+  flex-shrink: 0;
+  width: 46px;
+  height: 46px;
+  overflow: hidden;
 }
 
 /* ── Music wave bars ─────────────────────────────────────── */
