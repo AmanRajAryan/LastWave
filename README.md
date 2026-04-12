@@ -1,27 +1,38 @@
-LastWave
+<h1 align="center">LastWave</h1><p align="center">
+A lightweight Android music companion built around Last.fm
+</p>---
 
-LastWave is an Android application built around the Last.fm ecosystem to help users track, analyze, and interact with their listening data.
+Overview
 
-The app focuses on simplicity, speed, and practical features rather than visual complexity.
+LastWave helps you work with your listening data in a practical way.
+It focuses on speed, clarity, and useful features instead of unnecessary complexity.
 
 ---
 
 Features
 
-- View listening statistics (scrobbles, tracks, artists)
-- Track recent and currently playing songs
-- Generate playlists based on listening history
-- Search tracks, artists, and albums
-- Explore music using genres and recommendations
-- Export generated playlists
+- Listening statistics (scrobbles, tracks, artists)
+- Recent and now playing tracking
+- Playlist generation based on your data
+- Search for tracks, artists, and albums
+- Genre-based exploration
+- Playlist export support
 
 ---
 
+Screenshots
+
+<p align="center">
+  <img src="screenshots/home.png" width="30%">
+  <img src="screenshots/playlist.png" width="30%">
+  <img src="screenshots/search.png" width="30%">
+</p>---
+
 Tech Stack
 
-- JavaScript (application logic)
-- HTML / CSS (UI)
-- Android WebView (container)
+- JavaScript
+- HTML / CSS
+- Android WebView
 - Last.fm API
 
 ---
@@ -42,41 +53,21 @@ Project Structure
 
 ---
 
-Screenshots
-
-Place screenshots inside a "screenshots/" folder.
-
-Example:
-
-screenshots/home.png
-screenshots/playlist.png
-screenshots/search.png
-
-Then reference them in the README:
-
-<p align="center">
-  <img src="screenshots/home.png" width="30%">
-  <img src="screenshots/playlist.png" width="30%">
-  <img src="screenshots/search.png" width="30%">
-</p>
-
----
-
 Installation
 
 git clone https://github.com/YOUR_USERNAME/LastWave.git
 
-Open the project in Android Studio and run it on a device or emulator.
+Open in Android Studio and run the project.
 
 ---
 
 Notes
 
-This project uses the Last.fm API for data.
-All data belongs to their respective owners.
+Uses Last.fm API for data.
+All rights belong to respective owners.
 
 ---
 
 License
 
-No license specified.
+Not specified.
