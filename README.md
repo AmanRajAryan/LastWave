@@ -1,4 +1,6 @@
-<h1 align="center">LastWave</h1><p align="center"># LastWave – Last.fm Playlist Generator
+<h1 align="center">LastWave</h1><p align="center">
+
+# LastWave – Last.fm Playlist Generator
 
 A Material You Android app that generates playlists from your Last.fm history.
 
@@ -55,3 +57,4 @@ A Material You Android app that generates playlists from your Last.fm history.
 1. Push this folder to a GitHub repository
 2. Actions tab → "Build LastWave APK" → Run workflow
 3. Download the APK artifact when complete
+4. 
