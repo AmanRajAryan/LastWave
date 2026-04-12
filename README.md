@@ -1,57 +1,82 @@
-# LastWave – Last.fm Playlist Generator
+LastWave
 
-A Material You Android app that generates playlists from your Last.fm history.
+LastWave is an Android application built around the Last.fm ecosystem to help users track, analyze, and interact with their listening data.
 
----
-
-## Setup in Android Studio
-
-### Option A: Copy-paste into existing project
-1. Open Android Studio → New Project → Empty Views Activity
-2. Package name: `com.lastwave.app`
-3. Replace the generated `app/` folder with the one from this zip
-4. Replace `build.gradle` (root) and `settings.gradle` with the ones from this zip
-5. Sync Gradle → Run
-
-### Option B: Open as project
-1. Open Android Studio
-2. File → Open → select the `LastWave/` folder
-3. Let Gradle sync
-4. Run on device or emulator
+The app focuses on simplicity, speed, and practical features rather than visual complexity.
 
 ---
 
-## Getting a Last.fm API Key
+Features
 
-1. Go to https://www.last.fm/api/account/create
-2. Fill in App name: `LastWave`, anything for description
-3. Copy the **API key**
-4. Open the app → Settings → paste the key → Save
-
----
-
-## Playlist Modes
-
-| Mode | Description |
-|------|-------------|
-| Top Tracks | Your most-played tracks (choose time period) |
-| Recent Tracks | Latest scrobbles |
-| Similar Tracks | Tracks similar to a seed track |
-| Similar Artists | Top tracks from artists similar to a seed artist |
-| By Tag | Top tracks for a genre/tag (rock, lofi, jazz…) |
-| My Mix | Smart blend of all of the above |
-
-## Export Options
-
-- **CSV** – Opens share sheet, save anywhere
-- **M3U** – Standard playlist file for media players
-- **Share** – Text list via any app (WhatsApp, notes, etc.)
-- **You Tube** – Searches the first track on You Tube
+- View listening statistics (scrobbles, tracks, artists)
+- Track recent and currently playing songs
+- Generate playlists based on listening history
+- Search tracks, artists, and albums
+- Explore music using genres and recommendations
+- Export generated playlists
 
 ---
 
-## Build via GitHub Actions
+Tech Stack
 
-1. Push this folder to a GitHub repository
-2. Actions tab → "Build LastWave APK" → Run workflow
-3. Download the APK artifact when complete
+- JavaScript (application logic)
+- HTML / CSS (UI)
+- Android WebView (container)
+- Last.fm API
+
+---
+
+Project Structure
+
+.
+├── index.html
+├── app.js
+├── app.css
+├── nav.js
+├── home/
+├── generator/
+├── playlist/
+├── settings/
+├── search/
+└── genres/
+
+---
+
+Screenshots
+
+Place screenshots inside a "screenshots/" folder.
+
+Example:
+
+screenshots/home.png
+screenshots/playlist.png
+screenshots/search.png
+
+Then reference them in the README:
+
+<p align="center">
+  <img src="screenshots/home.png" width="30%">
+  <img src="screenshots/playlist.png" width="30%">
+  <img src="screenshots/search.png" width="30%">
+</p>
+
+---
+
+Installation
+
+git clone https://github.com/YOUR_USERNAME/LastWave.git
+
+Open the project in Android Studio and run it on a device or emulator.
+
+---
+
+Notes
+
+This project uses the Last.fm API for data.
+All data belongs to their respective owners.
+
+---
+
+License
+
+No license specified.
