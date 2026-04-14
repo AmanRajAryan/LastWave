@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build Debug APK
+    name: Build Debug & Release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -29,9 +29,17 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --stacktrace
+
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
-          retention-days: 14
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: LastWave-Release-APK
+          path: app/build/outputs/apk/release/*.apk
