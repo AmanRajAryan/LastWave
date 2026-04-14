@@ -3,7 +3,6 @@ package com.lastwave.app;
 import android.graphics.Color;
 import android.Manifest;
 import android.app.WallpaperManager;
-import android.content.pm.ApplicationInfo;
 import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -125,6 +124,8 @@ public class MainActivity extends AppCompatActivity {
         // level, and the setting contradicts the manifest's intent.
 
         webView.setWebChromeClient(new WebChromeClient());
+        // Disable remote debugging in all builds — never expose DevTools to the network
+        WebView.setWebContentsDebuggingEnabled(false);
 
         final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
@@ -147,17 +148,6 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                boolean isDebug = (getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0;
-                if (isDebug) {
-                    view.evaluateJavascript(
-                        "(function(){" +
-                        "  var s = document.createElement('script');" +
-                        "  s.src = 'https://cdn.jsdelivr.net/npm/eruda';" +
-                        "  s.onload = function(){ eruda.init(); };" +
-                        "  document.head.appendChild(s);" +
-                        "})()", null);
-                }
-
                 // Deliver any deep-link token that arrived before the page finished loading
                 deliverPendingDeepLink();
             }
