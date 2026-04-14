@@ -1,5 +1,9 @@
 <h1 align="center">LastWave</h1><p align="center">
 
+
+This repo totally belong to [DUXTAMI](https://github.com/duxtami)
+
+
 # LastWave – Last.fm Playlist Generator
 
 A Material You Android app that generates playlists from your Last.fm history.
