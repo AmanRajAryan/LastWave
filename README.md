@@ -2,6 +2,8 @@
 
 **A beautiful Last.fm companion app for Android.**
 
+This repo totally belong to [DUXTAMI](https://github.com/duxtami)
+
 LastWave connects to your Last.fm account to surface your scrobble history, genre analytics, and smart playlist generation — all wrapped in a clean Material You interface.
 
 <p align="center">
