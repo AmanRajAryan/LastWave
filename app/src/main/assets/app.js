@@ -379,8 +379,6 @@ function _md5SelfTest() {
   _md5SelfTestPassed = (actual === expected);
   if (!_md5SelfTestPassed) {
     console.error('[Auth] MD5 self-test FAILED — got:', actual, ' expected:', expected);
-  } else {
-    console.debug('[Auth] MD5 self-test passed OK');
   }
   return _md5SelfTestPassed;
 }
@@ -420,12 +418,7 @@ function _lfmSig(params, secret) {
   // Signature base: key1value1key2value2...SECRET
   const base = sortedKeys.map(k => k + String(params[k])).join('') + secret;
 
-  // Debug log (secret masked)
-  console.debug('[Auth] Signing keys (sorted):', sortedKeys.join(', '));
-  console.debug('[Auth] Sig base string:', base.replace(secret, '**SECRET**'));
-
   const hash = _md5(base);
-  console.debug('[Auth] api_sig (md5):', hash);
   return hash;
 }
 
@@ -485,12 +478,9 @@ async function _buildUserTasteProfile() {
   try {
     const raw = JSON.parse(localStorage.getItem(_TASTE_PROFILE_KEY) || 'null');
     if (raw && raw.username === state.username && Date.now() - raw.ts < _TASTE_PROFILE_TTL) {
-      console.debug('[Taste] using cached profile, age:', Math.round((Date.now() - raw.ts) / 60000), 'min');
       return raw.profile;
     }
   } catch {}
-
-  console.debug('[Taste] building fresh profile…');
 
   const profile = {
     topArtistNames:   [],  // lowercased
@@ -548,12 +538,6 @@ async function _buildUserTasteProfile() {
     }));
   } catch {}
 
-  console.debug('[Taste] profile built —',
-    profile.topArtistNames.length, 'artists,',
-    profile.topTags.length, 'tags,',
-    profile.topTrackSeeds.length, 'top tracks,',
-    profile.recentTrackSeeds.length, 'recent tracks'
-  );
   return profile;
 }
 
@@ -839,7 +823,6 @@ function _artDiskGet(key) {
     delete cache[key];
     return null;
   }
-  console.debug('[ArtCache] disk hit:', key, entry.url ? '✓ ' + entry.url.slice(-30) : '(no art)');
   return entry.url;
 }
 
@@ -894,7 +877,6 @@ async function _itunesFetchArtwork(nameOrTrack, artist, type) {
 
   const ck = `it:${type}:${(nameOrTrack).toLowerCase().slice(0, 60)}:${(artist || '').toLowerCase().slice(0, 40)}`;
   if (_itunesCache.has(ck)) {
-    console.debug('[iTunes] mem-cache hit:', ck);
     return _itunesCache.get(ck);
   }
   // Check persistent disk cache before hitting the network
@@ -923,7 +905,6 @@ async function _itunesFetchArtwork(nameOrTrack, artist, type) {
       apiUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=1`;
     }
 
-    console.debug('[iTunes] fetching:', type, nameOrTrack, artist && `by ${artist}`);
     const res = await fetch(apiUrl, { signal: AbortSignal.timeout(6000) });
 
     if (!res.ok) {
@@ -933,15 +914,12 @@ async function _itunesFetchArtwork(nameOrTrack, artist, type) {
       const results = data?.results;
 
       if (!Array.isArray(results) || results.length === 0) {
-        console.debug('[iTunes] no results for:', nameOrTrack);
+        // no results — imgUrl stays ''
       } else {
         const item = results[0];
         const raw  = item?.artworkUrl100 || item?.artworkUrl60 || '';
         if (raw) {
           imgUrl = _itunesUpscale(raw);
-          console.debug('[iTunes] found artwork for:', nameOrTrack, '→', imgUrl);
-        } else {
-          console.debug('[iTunes] item has no artworkUrl100 for:', nameOrTrack);
         }
       }
     }
@@ -1134,8 +1112,6 @@ async function lfmCallSigned(params) {
   // Do NOT include format, callback, or api_sig at this stage.
   const p = { ...params, api_key: keyNorm };
 
-  console.debug('[Auth] Params to sign:', Object.keys(p).sort().join(', '));
-
   // ── Step 4: Compute signature ─────────────────────────────────────────────
   p.api_sig = _lfmSig(p, secNorm);
 
@@ -1316,7 +1292,6 @@ function signOut() {
 
 function _setAuthStatus(status, msg) {
   state.authState = status;
-  if (msg) console.debug('[Auth]', msg);
 }
 
 /** Fire the settings screen's refresh function if it's currently loaded */
@@ -1716,16 +1691,6 @@ async function fetchRecommendations(total) {
   // ── Cross-session freshness pass ──────────────────────────────
   const fresh  = _filterFresh(validatedTracks);
   const result = (fresh.length >= Math.min(total, 8) ? fresh : validatedTracks).slice(0, total);
-
-  console.debug('[Recommendations v2] pool:', weighted.length,
-    '\u2192 deduped:', dedupedWeighted.length,
-    '\u2192 scored (not recent):', scored.filter(s => s.score !== -1).length,
-    '\u2192 filtered:', filtered.length,
-    '\u2192 balanced:', balanced.length,
-    '\u2192 diverse:', diverse.length,
-    '\u2192 validated:', validatedTracks.length,
-    '\u2192 final:', result.length
-  );
 
   return deduplicateTracks(result);
 }

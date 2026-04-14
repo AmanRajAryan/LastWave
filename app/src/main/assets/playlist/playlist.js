@@ -169,7 +169,6 @@ function _plBindCardLongPress(container) {
         // avoids any _plLoad() lookup ambiguity that could return meta text.
         const name = (header.closest('.pl-card')?.dataset?.plTitle || '').trim();
         if (!name) return;
-        console.log('Copied:', name);
         if (navigator.clipboard?.writeText) {
           navigator.clipboard.writeText(name)
             .then(() => showToast('Copied: ' + name, 'success'))
