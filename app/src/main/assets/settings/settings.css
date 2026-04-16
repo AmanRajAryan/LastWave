@@ -1,3 +1,9 @@
+:root {
+  /* Fallback so --md-primary is always defined before Android bridge fires.
+     The bridge will override this with the real dynamic color at runtime.   */
+  --md-primary: #4CAF50;
+}
+
 /* ════════════════════════════════════════════════════════════
    settings.css — Settings screen styles  ·  Material You
    ════════════════════════════════════════════════════════════ */
@@ -44,13 +50,14 @@
 }
 
 /* ── Divider within a card — thin Material 3 hairline ─────────
-   Single source of truth: 1px, rgba(255,255,255,0.08).
-   Used by .settings-divider, --bordered rows, and .info-row.
+   Single source of truth: 1px, rgba(255,255,255,0.14).
+   Consistent alpha across .settings-divider, --bordered rows,
+   and .info-row so all three Appearance dividers look identical.
    ─────────────────────────────────────────────────────────── */
 .settings-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.08);
-  margin: 16px 0;
+  background: rgba(255, 255, 255, 0.14);
+  margin: 0 0 16px 0;
   border: none;
 }
 
@@ -138,40 +145,43 @@
 }
 
 /* ── Material You Toggle ──────────────────────────────────── */
+
+/* OFF track */
 .toggle {
-  width: 52px;
-  height: 30px;
-  box-sizing: border-box;
-  border-radius: 15px;
-  background: var(--md-surface-variant);
-  border: 1.5px solid var(--md-outline);
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: rgba(120, 120, 120, 0.35);
+  border: none;
   position: relative;
-  transition: background 0.25s ease, border-color 0.25s ease;
+  transition: background 0.25s ease;
   flex-shrink: 0;
   cursor: pointer;
+  box-sizing: border-box;
 }
 
+/* ON track — direct var(), NO color-mix() */
 .toggle.active {
-  background: var(--md-primary-container);
-  border-color: transparent;
+  background: var(--md-primary, var(--accent, #4CAF50));
 }
 
+/* OFF thumb */
 .toggle::after {
   content: '';
   position: absolute;
-  top: 3.5px;
-  left: 3.5px;
-  width: 20px;
-  height: 20px;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: var(--md-outline);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
-  transition: transform 0.25s cubic-bezier(0.34, 1.3, 0.64, 1), background 0.25s ease;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.30);
+  transition: transform 0.25s cubic-bezier(0.34, 1.3, 0.64, 1);
 }
 
+/* ON thumb — slide right */
 .toggle.active::after {
-  transform: translateX(22px);
-  background: var(--md-primary);
+  transform: translateX(20px);
 }
 
 /* ── Material You Palette Grid ────────────────────────────── */
@@ -271,8 +281,8 @@
   align-items: center;
   padding: 15px 18px;
   font-size: 14px;
-  /* Consistent hairline divider — matches .settings-divider */
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  /* Consistent hairline divider — same token as .settings-divider */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.14);
 }
 .info-row:last-child { border-bottom: none; }
 .info-row span:first-child { color: var(--text2); }
@@ -307,7 +317,16 @@
 
 /* Consistent hairline border — same token as .settings-divider */
 .settings-toggle-row--bordered {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* ── Appearance / toggle-only card: balanced vertical padding ──
+   Matches the standard .card padding used by other sections
+   (e.g. DATA) so the Appearance section sits at the same visual
+   weight — no extra gap above the first toggle row.           */
+.settings-toggle-card {
+  padding-top: 16px !important;
+  padding-bottom: 16px !important;
 }
 
 /* ══════════════════════════════════════════════════════════

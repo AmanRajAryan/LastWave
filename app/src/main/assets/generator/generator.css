@@ -116,8 +116,9 @@
   margin-top: 14px;
   background: var(--surface);
   border-radius: var(--radius);
-  padding: 20px;
+  padding: 20px 20px 32px;   /* extra bottom clears tick labels */
   border: none;
+  overflow: visible;           /* never clip tick labels at card edges */
   box-shadow: 0 1px 4px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.14);
   animation: slideUp 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -136,6 +137,9 @@
 .opt-common {
   margin-top: 16px;
   padding-top: 16px;
+  /* Increased from 8px → 20px so the tick labels below the slider
+     are never clipped by the card bottom edge on any screen size. */
+  padding-bottom: 20px;
   box-shadow: inset 0 1px 0 var(--divider);
 }
 
@@ -230,27 +234,25 @@
 .gen-slider-wrap {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.gen-slider-edge {
-  font-size: 11px;
-  color: var(--text3);
-  font-weight: 600;
-  flex-shrink: 0;
-  width: 18px;
-  text-align: center;
+  /* Increased from 6px → 10px for a little extra breathing room
+     between the slider thumb and the tick labels below it. */
+  margin-bottom: 10px;
 }
 
 /* Native range input — themed for Material You dark */
 .gen-slider {
   flex: 1;
+  width: 100%;            /* ensure full-width within flex container */
   -webkit-appearance: none;
   appearance: none;
   height: 4px;
   border-radius: 2px;
-  background: var(--md-outline-variant);
+  /* Base track colour — ONLY the ::webkit-slider-runnable-track pseudo
+     gets the filled gradient (via --slider-pct).  Do NOT set a
+     background shorthand here: it would override the track pseudo rule
+     in some Android WebView versions and cause the filled portion to
+     render in a different coordinate space from the thumb. */
+  background: transparent;
   outline: none;
   cursor: pointer;
   position: relative;
@@ -302,20 +304,42 @@
   cursor: pointer;
 }
 
-/* Tick labels below slider */
+/* Tick labels below slider
+ *
+ * KEY ALIGNMENT FIX:
+ *   Each <span> has width:0 so space-between distributes them by
+ *   their zero-width points, not their text boxes.  The first span
+ *   is placed at the left padding edge (= thumb-radius = 11px) and
+ *   the last at the right padding edge, matching EXACTLY where the
+ *   browser positions the thumb at min and max values.
+ *   text-align:center + overflow:visible lets the label text float
+ *   symmetrically on both sides of the tick point, so "15" reads
+ *   centred under the thumb at value 15, with zero left/right drift.
+ */
 .gen-slider-ticks {
   display: flex;
   justify-content: space-between;
-  padding: 0 14px;
+  /* padding-left/right = thumb-radius (22px ÷ 2 = 11px) so the
+     first and last tick points sit directly under the min/max
+     thumb stop, matching the exact coordinates the browser uses. */
+  padding: 0 11px;
+  padding-bottom: 24px;    /* extra room so "5"/"35" are never clipped */
   margin-top: 2px;
-  margin-bottom: 4px;
+  margin-bottom: 0;
+  overflow: visible;       /* never clip tick text against parent edges */
 }
 .gen-slider-ticks span {
   font-size: 10px;
   color: var(--text3);
   font-weight: 500;
-  width: 20px;
+  /* width:0 — tick point has no physical width so space-between
+     places centers at perfectly equal intervals that match the
+     slider thumb's horizontal travel.  Text overflows visually
+     via overflow:visible + white-space:nowrap. */
+  width: 0;
   text-align: center;
+  overflow: visible;
+  white-space: nowrap;
 }
 
 /* ══════════════════════════════════════════════════════════

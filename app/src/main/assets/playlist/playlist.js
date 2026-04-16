@@ -288,7 +288,6 @@ function _plCardHTML(pl, isNewest) {
             ${templateLabel ? `<span class="pl-card-template">· ${esc(templateLabel)}</span>` : ''}
           </div>
         </div>
-        <span class="material-symbols-rounded pl-card-chevron">expand_more</span>
       </div>
 
       <!-- Actions -->
@@ -297,6 +296,10 @@ function _plCardHTML(pl, isNewest) {
         <button class="pl-card-action-btn"
                 onclick="event.stopPropagation();_plShowExportDialog(${pl.id})">
           <span class="material-symbols-rounded">download</span>Export
+        </button>
+        <button class="pl-card-action-btn similar"
+                onclick="event.stopPropagation();_plGenerateSimilar(${pl.id})">
+          <span class="material-symbols-rounded">auto_awesome</span>Generate Similar
         </button>
         <button class="pl-card-action-btn danger"
                 onclick="event.stopPropagation();_plDelete(${pl.id})">
@@ -652,6 +655,176 @@ function _doExportM3U(pl) {
 }
 
 // ── Delete ────────────────────────────────────────────────────
+// ── Generate Similar ─────────────────────────────────────────
+/**
+ * Derives the next sequential name for a "similar" playlist.
+ * "Echo"   → "Echo 2"
+ * "Echo 2" → "Echo 3"  (strips trailing number before incrementing)
+ * Keeps incrementing until no stored playlist has that title.
+ */
+function _plNextSimilarName(sourceName) {
+  const playlists = _plLoad();
+  const titles    = new Set(playlists.map(p => p.title));
+  // Strip trailing " N" so "Echo 2" → base "Echo"
+  const base = sourceName.replace(/\s+\d+$/, '').trim();
+  let n = 2;
+  while (titles.has(`${base} ${n}`)) n++;
+  return `${base} ${n}`;
+}
+
+/**
+ * Generates a new playlist that is similar to the given one.
+ * Seeds: up to 5 tracks from the source playlist.
+ * Fetches similar tracks for each seed, deduplicates against
+ * the original, shuffles and saves with a sequential name.
+ */
+async function _plGenerateSimilar(id) {
+  const source = _plLoad().find(p => p.id === id);
+  if (!source || !source.tracks?.length) {
+    showToast('No tracks to base similar playlist on', 'error');
+    return;
+  }
+
+  // Disable the button while running to prevent double-taps
+  const btn = document.querySelector(
+    `.pl-card[data-pl-id="${id}"] .pl-card-action-btn.similar`
+  );
+  if (btn) { btn.disabled = true; btn.style.opacity = '0.5'; }
+
+  showToast('Generating similar playlist…');
+
+  try {
+    const targetCount = Math.max(source.tracks.length, 15);
+
+    // Build exclusion set from original tracks
+    const excluded = new Set(
+      source.tracks.map(t => `${t.name}|${t.artist}`.toLowerCase())
+    );
+
+    // Pick up to 5 diverse seed tracks (spread across the playlist)
+    const step  = Math.max(1, Math.floor(source.tracks.length / 5));
+    const seeds = [];
+    for (let i = 0; i < source.tracks.length && seeds.length < 5; i += step) {
+      const t = source.tracks[i];
+      if (t?.name && t?.artist) seeds.push(t);
+    }
+
+    // Collect candidates from track.getsimilar for each seed
+    let candidates = [];
+    await Promise.allSettled(seeds.map(async seed => {
+      try {
+        const data = await lfmCall({
+          method:      'track.getsimilar',
+          track:       seed.name,
+          artist:      seed.artist,
+          limit:       Math.min(targetCount * 4, 100),
+          autocorrect: 1
+        });
+        const tracks = normaliseTracks(data?.similartracks?.track);
+        candidates   = candidates.concat(tracks);
+      } catch { /* skip failed seeds silently */ }
+    }));
+
+    // Also pull top tracks from the unique artists in the source playlist
+    // to ensure variety when track.getsimilar returns thin results
+    const uniqueArtists = [...new Set(
+      source.tracks.map(t => t.artist).filter(Boolean)
+    )].slice(0, 4);
+
+    await Promise.allSettled(uniqueArtists.map(async artist => {
+      try {
+        const data = await lfmCall({
+          method: 'artist.getsimilar',
+          artist,
+          limit:  8
+        });
+        const simArtists = shuffleArray(data?.similarartists?.artist || []).slice(0, 3);
+        await Promise.allSettled(simArtists.map(async sa => {
+          try {
+            const d = await lfmCall({
+              method: 'artist.gettoptracks',
+              artist: sa.name,
+              limit:  Math.ceil(targetCount / 4)
+            });
+            candidates = candidates.concat(normaliseTracks(d?.toptracks?.track));
+          } catch {}
+        }));
+      } catch {}
+    }));
+
+    // Deduplicate candidates against themselves and the source playlist
+    const seen  = new Set();
+    const fresh = [];
+    for (const t of candidates) {
+      if (!t?.name || !t?.artist) continue;
+      const k = `${t.name}|${t.artist}`.toLowerCase();
+      if (excluded.has(k) || seen.has(k)) continue;
+      seen.add(k);
+      fresh.push(t);
+    }
+
+    if (fresh.length === 0) {
+      showToast('Couldn\'t find enough new tracks — try again', 'error');
+      return;
+    }
+
+    // Artist diversity cap: max 2 tracks per artist
+    const artistCount = {};
+    const diverse = [];
+    for (const t of shuffleArray(fresh)) {
+      const a = t.artist.toLowerCase();
+      if ((artistCount[a] || 0) >= 2) continue;
+      artistCount[a] = (artistCount[a] || 0) + 1;
+      diverse.push(t);
+      if (diverse.length >= targetCount) break;
+    }
+
+    const newTitle = _plNextSimilarName(source.title);
+
+    // ── Pre-enrich artwork for cover grid ───────────────────────
+    // The tracks from track.getsimilar / artist.gettoptracks rarely
+    // carry image URLs.  Fetch art for the first 4 tracks now so the
+    // 2×2 cover grid in the card header is populated immediately.
+    // Uses the same priority chain as _resolveTrackArt:
+    //   1. Keep existing track.image if already valid
+    //   2. Last.fm track.getInfo album art
+    //   3. iTunes fallback (when enabled)
+    if (typeof _resolveTrackArt === 'function') {
+      await Promise.allSettled(diverse.slice(0, 4).map(async (t, i) => {
+        // Skip if the track already has a valid image from the API response
+        if (t.image && t.image.trim()) return;
+        try {
+          const url = await _resolveTrackArt(t.name, t.artist);
+          if (url) diverse[i] = { ...diverse[i], image: url };
+        } catch { /* silently skip — card will enrich lazily on expand */ }
+      }));
+    }
+
+    // Invalidate cache before saving so _plNextSimilarName sees the
+    // new title on any immediate re-call
+    _plCache = null;
+
+    _plSave({
+      id:       Date.now(),
+      title:    newTitle,
+      subtitle: `Similar to "${source.title}"`,
+      mode:     source.mode || '',
+      tracks:   diverse,
+      date:     Date.now()
+    });
+
+    // Invalidate again after save so the render reads fresh data
+    _plCache = null;
+    _plRenderSaved(true);
+
+    showToast(`"${newTitle}" created ✓`, 'success');
+  } catch (err) {
+    showToast('Failed to generate: ' + err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.style.opacity = ''; }
+  }
+}
+
 function _plDelete(id) {
   showModal(
     'Delete playlist?',

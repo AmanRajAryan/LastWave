@@ -147,8 +147,35 @@
 }
 
 .pl-card-actions {
-  display: flex; gap: 10px; padding: 10px 16px 14px;
-  box-shadow: inset 0 1px 0 var(--divider); flex-wrap: wrap;
+  display: none;                    /* hidden by default — shown only when expanded */
+  gap: 8px;
+  padding: 10px 12px 14px;         /* top padding creates visual separation from track list */
+  box-shadow: inset 0 1px 0 var(--divider);
+  flex-wrap: nowrap;                /* all buttons stay in ONE horizontal row — no wrapping */
+  align-items: center;
+  /* ── Horizontal scroll: user swipes to reach all 4 buttons ── */
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch; /* smooth momentum scroll in Android WebView */
+  scrollbar-width: none;            /* hide scrollbar (Firefox) */
+}
+
+/* Hide webkit scrollbar — keep the row visually clean */
+.pl-card-actions::-webkit-scrollbar {
+  display: none;
+}
+
+/* Reveal when the card is expanded (Issue 5 — hidden by default) */
+.pl-card.expanded .pl-card-actions {
+  display: flex;
+}
+
+/* Buttons: natural (auto) width so long labels like "Generate Similar" don't break */
+.pl-card.expanded .pl-card-actions .pl-card-action-btn {
+  flex: 0 0 auto;            /* do NOT grow/shrink — stay at natural content width */
+  justify-content: center;
+  padding: 9px 14px;
+  font-size: 13px;
 }
 .pl-card-action-btn {
   display: inline-flex; align-items: center; gap: 7px;
@@ -170,6 +197,11 @@
   background: var(--accent-dim); color: var(--accent); border: none;
 }
 .pl-card-action-btn.regen:active { background: var(--accent-tonal); }
+.pl-card-action-btn.similar {
+  background: var(--accent-dim); color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.pl-card-action-btn.similar:active { background: var(--accent-tonal); }
 
 /* ── Track list — smooth height animation ─────────────────── */
 /* Uses grid-template-rows trick: reliable on Android WebView,
