@@ -94,6 +94,10 @@ function selectChip(el, group) {
 // ── Unified track count slider ────────────────────────────────
 function selectSliderCount(val) {
   const n   = Math.max(5, Math.min(35, parseInt(val) || 25));
+  // pct drives ONLY the CSS custom property used by the ::webkit-slider-runnable-track
+  // rule in generator.css.  We must NOT also set slider.style.background inline —
+  // that paints the element box (which ignores thumb margin-top) and creates a
+  // visible offset between the filled portion and the thumb position.
   const pct = ((n - 5) / 30 * 100).toFixed(1) + '%';
   state.chipSelections.count = String(n);
   state.chipSelections.limit = String(n);
@@ -102,9 +106,13 @@ function selectSliderCount(val) {
   if (label)  label.textContent = n;
   if (slider) {
     if (slider.value !== String(n)) slider.value = n;
+    // Drive the track-fill via CSS custom property so the gradient
+    // is painted on the ::webkit-slider-runnable-track, which shares
+    // the same coordinate space as the thumb — zero alignment drift.
     slider.style.setProperty('--slider-pct', pct);
-    slider.style.background =
-      `linear-gradient(to right,var(--md-primary) 0%,var(--md-primary) ${pct},var(--md-outline-variant) ${pct},var(--md-outline-variant) 100%)`;
+    // Clear any stale inline background that may have been written by
+    // an older version of this function (prevents override of the CSS rule).
+    slider.style.background = '';
   }
 }
 
