@@ -21,6 +21,10 @@
  *   outline / outlineVariant
  */
 :root {
+  /* Prevent Android WebView algorithmic dark mode from recoloring
+     pseudo-elements. This page manages its own dark theme. */
+  color-scheme: dark;
+
   /* ── M3 Semantic Color Roles (dark scheme, hue 0° defaults) ── */
   --md-primary:                   hsl(0, 70%, 80%);   /* tone 80 */
   --md-on-primary:                hsl(0, 70%, 15%);   /* tone 20 */
