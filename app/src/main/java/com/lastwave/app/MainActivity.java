@@ -27,6 +27,8 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.webkit.WebViewAssetLoader;
 import androidx.webkit.WebViewClientCompat;
+import androidx.webkit.WebSettingsCompat;
+import androidx.webkit.WebViewFeature;
 import java.io.*;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -119,6 +121,20 @@ public class MainActivity extends AppCompatActivity {
         // https://appassets.androidplatform.net. Enabling them would allow
         // file:// URLs to make cross-origin requests, creating XSS risk.
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
+
+        // ── Disable WebView algorithmic dark mode ─────────────────────────────
+        // Without this, Android 10+ WebView applies a system-level color
+        // transformation pass to pseudo-elements (::after, ::before) that runs
+        // BELOW the CSS cascade and ignores !important — causing the toggle
+        // thumb and other white pseudo-elements to appear dark/grey in ON state.
+        // API 29-32: setForceDark(OFF)
+        // API 33+  : setAlgorithmicDarkeningAllowed(false)
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+            WebSettingsCompat.setForceDark(settings, WebSettingsCompat.FORCE_DARK_OFF);
+        }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, false);
+        }
         // FIX: Removed MIXED_CONTENT_ALWAYS_ALLOW — redundant because
         // android:usesCleartextTraffic="false" already blocks HTTP at the OS
         // level, and the setting contradicts the manifest's intent.
@@ -174,12 +190,17 @@ public class MainActivity extends AppCompatActivity {
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
+                // evaluateJavascript JSON-encodes its return value.
+                // Returning a JS boolean (not a string) means the callback
+                // receives exactly "true" or "false" — no extra quotes.
+                // Using String() would wrap it in a JS string, giving
+                // "\"true\"" — breaking the equality check below.
                 webView.evaluateJavascript(
-                    "window._lwHandleBack ? String(window._lwHandleBack()) : 'false'",
+                    "typeof window._lwHandleBack === 'function' ? !!window._lwHandleBack() : false",
                     result -> {
-                        // result is a JSON string — "true" or "false"
+                        // result is the JSON-encoded JS boolean: "true" or "false"
                         if (!"true".equals(result)) {
-                            // JS has nothing to go back to — exit normally
+                            // JS stack is empty — let Android exit normally
                             setEnabled(false);
                             getOnBackPressedDispatcher().onBackPressed();
                         }
@@ -374,15 +395,33 @@ public class MainActivity extends AppCompatActivity {
         // ── Wallpaper Colors ──────────────────────────────────────────────────
         @JavascriptInterface
         public String getWallpaperColors() {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O_MR1) return "";
             try {
-                WallpaperManager wm = WallpaperManager.getInstance(MainActivity.this);
-                WallpaperColors colors = wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
-                if (colors == null) return "";
-                String primary   = colorToHex(colors.getPrimaryColor().toArgb());
-                String secondary = colors.getSecondaryColor() != null ? colorToHex(colors.getSecondaryColor().toArgb()) : primary;
-                String tertiary  = colors.getTertiaryColor()  != null ? colorToHex(colors.getTertiaryColor().toArgb())  : secondary;
-                return "{\"primary\":\"" + primary + "\",\"secondary\":\"" + secondary + "\",\"tertiary\":\"" + tertiary + "\"}";
+                // Android 12+ (API 31): read the real Monet / Dynamic Color tonal
+                // palette directly from system resource slots. These are exactly what
+                // DynamicColors / dynamicDarkColorScheme() uses — NOT the raw dominant
+                // wallpaper hues from WallpaperManager which are pre-Monet colors.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    int primary   = ContextCompat.getColor(MainActivity.this, android.R.color.system_accent1_400);
+                    int secondary = ContextCompat.getColor(MainActivity.this, android.R.color.system_accent2_400);
+                    int tertiary  = ContextCompat.getColor(MainActivity.this, android.R.color.system_accent3_400);
+                    return "{\"primary\":\""   + colorToHex(primary)
+                         + "\",\"secondary\":\"" + colorToHex(secondary)
+                         + "\",\"tertiary\":\""  + colorToHex(tertiary) + "\"}";
+                }
+                // Android 8.1–11 (API 27–30): best available fallback via WallpaperColors.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                    WallpaperManager wm = WallpaperManager.getInstance(MainActivity.this);
+                    WallpaperColors colors = wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM);
+                    if (colors == null) return "";
+                    String primary   = colorToHex(colors.getPrimaryColor().toArgb());
+                    String secondary = colors.getSecondaryColor() != null
+                            ? colorToHex(colors.getSecondaryColor().toArgb()) : primary;
+                    String tertiary  = colors.getTertiaryColor()  != null
+                            ? colorToHex(colors.getTertiaryColor().toArgb())  : secondary;
+                    return "{\"primary\":\"" + primary + "\",\"secondary\":\"" + secondary
+                         + "\",\"tertiary\":\"" + tertiary + "\"}";
+                }
+                return "";
             } catch (Exception e) { return ""; }
         }
 
