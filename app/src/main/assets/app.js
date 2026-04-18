@@ -371,16 +371,16 @@ function _md5(str) {
 
 // ── MD5 self-check (verifies implementation against RFC 1321 vector) ─────────
 // MD5("abc") must equal "900150983cd24fb0d6963f7d28e17f72"
-let _md5SelfTestPassed = null;
-function _md5SelfTest() {
-  if (_md5SelfTestPassed !== null) return _md5SelfTestPassed;
+let _md5SelfCheckPassed = null;
+function _md5SelfCheck() {
+  if (_md5SelfCheckPassed !== null) return _md5SelfCheckPassed;
   const expected = '900150983cd24fb0d6963f7d28e17f72';
   const actual   = _md5('abc');
-  _md5SelfTestPassed = (actual === expected);
-  if (!_md5SelfTestPassed) {
+  _md5SelfCheckPassed = (actual === expected);
+  if (!_md5SelfCheckPassed) {
     console.error('[Auth] MD5 self-check FAILED — got:', actual, ' expected:', expected);
   }
-  return _md5SelfTestPassed;
+  return _md5SelfCheckPassed;
 }
 
 /**
@@ -1103,7 +1103,7 @@ async function lfmCallSigned(params) {
   if (secNorm.length !== 32) console.warn('[Auth] API secret is', secNorm.length, 'chars — expected 32');
 
   // ── Step 2: MD5 self-check ─────────────────────────────────────────────────
-  if (!_md5SelfTest()) {
+  if (!_md5SelfCheck()) {
     throw new Error('Internal MD5 error — authentication cannot proceed. Please report this bug.');
   }
 
