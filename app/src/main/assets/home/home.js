@@ -1246,6 +1246,23 @@ function _openTrackDropdown(btn, trackName, artistName) {
         showToast('Cover art not available', 'error');
       }
     }},
+    { icon: 'delete', label: 'Delete Scrobble', action: () => {
+      if (!state.sessionKey) { showToast('Sign in to delete scrobbles', 'error'); return; }
+      showModal(
+        'Delete Scrobble?',
+        `Remove \u201c${trackName}\u201d by ${artistName} from your Last.fm history?`,
+        async () => {
+          const ok = await _lfmDeleteScrobble(trackName, artistName, tsMs);
+          if (ok) {
+            const idx = _homeAllTracks.findIndex(
+              t => t.name === trackName && t.artist === artistName &&
+                   (!tsMs || t._timestamp === tsMs)
+            );
+            if (idx !== -1) { _homeAllTracks.splice(idx, 1); _renderList(); }
+          }
+        }
+      );
+    }},
   ];
 
   const menu = document.createElement('div');

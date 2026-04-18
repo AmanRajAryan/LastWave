@@ -369,7 +369,7 @@ function _md5(str) {
   ).join('');
 }
 
-// ── MD5 self-check (verifies implementation against RFC 1321 vector) ─────────
+// ── MD5 self-test (verifies implementation against RFC 1321 vector) ─────────
 // MD5("abc") must equal "900150983cd24fb0d6963f7d28e17f72"
 let _md5SelfTestPassed = null;
 function _md5SelfTest() {
@@ -378,7 +378,7 @@ function _md5SelfTest() {
   const actual   = _md5('abc');
   _md5SelfTestPassed = (actual === expected);
   if (!_md5SelfTestPassed) {
-    console.error('[Auth] MD5 self-check FAILED — got:', actual, ' expected:', expected);
+    console.error('[Auth] MD5 self-test FAILED — got:', actual, ' expected:', expected);
   }
   return _md5SelfTestPassed;
 }
@@ -1044,7 +1044,6 @@ async function lfmCall(params) {
   if (!state.apiKey) throw new Error('No API key set. Go to Settings.');
   const url = new URL(LASTFM_BASE);
   const p   = { ...params, api_key: state.apiKey, format: 'json' };
-  if (state.sessionKey && !p.sk) p.sk = state.sessionKey;
   Object.entries(p).forEach(([k, v]) => url.searchParams.set(k, v));
   return _cachedFetch(url.toString());
 }
@@ -1081,7 +1080,7 @@ function _lfmFriendlyError(code, rawMsg) {
  *
  * Flow:
  *  1. Normalise key + secret (strip all non-hex chars, force lowercase)
- *  2. Run MD5 self-check to catch any implementation regression
+ *  2. Run MD5 self-test to catch any implementation regression
  *  3. Build params (NO format / callback at this point)
  *  4. Compute api_sig = _lfmSig(params, secret)
  *  5. Add format=json AFTER signing
@@ -1103,7 +1102,7 @@ async function lfmCallSigned(params) {
   if (keyNorm.length !== 32) console.warn('[Auth] API key is', keyNorm.length, 'chars — expected 32');
   if (secNorm.length !== 32) console.warn('[Auth] API secret is', secNorm.length, 'chars — expected 32');
 
-  // ── Step 2: MD5 self-check ─────────────────────────────────────────────────
+  // ── Step 2: MD5 self-test ─────────────────────────────────────────────────
   if (!_md5SelfTest()) {
     throw new Error('Internal MD5 error — authentication cannot proceed. Please report this bug.');
   }

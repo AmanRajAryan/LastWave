@@ -597,6 +597,22 @@ function _showSearchDropdown(item, anchorBtn) {
     });
   }
 
+  // "Delete Scrobble" — tracks only
+  if (isTrack) {
+    menuItems.push({
+      icon:  'delete',
+      label: 'Delete Scrobble',
+      fn() {
+        if (!state.sessionKey) { showToast('Sign in to delete scrobbles', 'error'); return; }
+        showModal(
+          'Delete Scrobble?',
+          `Remove \u201c${item._track}\u201d by ${item._artist} from your Last.fm history?`,
+          async () => { await _lfmDeleteScrobble(item._track, item._artist, null); }
+        );
+      }
+    });
+  }
+
   // ── Build DOM ─────────────────────────────────────────────
   const menuEl = document.createElement('div');
   menuEl.className  = 'track-dropdown-menu';
@@ -746,8 +762,8 @@ function _showState(s) {
 function _esc(str) {
   if (!str) return '';
   return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
     .replace(/"/g, '&quot;');
 }

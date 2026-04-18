@@ -129,8 +129,16 @@ async function navigateTo(page, opts) {
 
   // 3. Record history — skipped for back-navigation so we don't re-push
   //    the page we just popped. Also skip on the very first load (no currentPage).
+  //    Root tabs (home / generator / playlist) don't push other root tabs onto
+  //    the back stack — switching between them always exits on back press.
+  const _ROOT_TABS = new Set(['home', 'generator', 'playlist']);
   if (state.currentPage && !(opts && opts.isBack)) {
-    _navHistory.push(state.currentPage);
+    if (_ROOT_TABS.has(page) && _ROOT_TABS.has(state.currentPage)) {
+      // Tab → tab transition: clear the stack so back exits the app
+      _navHistory.length = 0;
+    } else {
+      _navHistory.push(state.currentPage);
+    }
   }
   
   // 3. Hide current screen

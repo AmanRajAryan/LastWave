@@ -38,6 +38,25 @@ const _GD_NO_ART   = '2a96cbd8b46e442fc41c2b86b821562f';
 
 // ── Screen init ───────────────────────────────────────────────
 async function screen_genres() {
+  // Register hardware-back handler:
+  // 1st press closes the detail sheet if open; 2nd press lets nav.js pop the stack.
+  window._lwScreenBackHandlers['genres'] = function () {
+    // Close active dropdown first
+    if (_activeGDDropdown) {
+      _activeGDDropdown.classList.add('track-dropdown-leaving');
+      setTimeout(() => { if (_activeGDDropdown) { _activeGDDropdown.remove(); _activeGDDropdown = null; } }, 160);
+      return true;
+    }
+    // Close genre detail overlay if open
+    const overlay = document.getElementById('genreDetailOverlay');
+    if (overlay && overlay.classList.contains('open')) {
+      _closeGenreDetail();
+      return true;
+    }
+    // Nothing intercepted — let nav.js handle the back (pop history)
+    return false;
+  };
+
   if (!state.username || !state.apiKey) {
     _genresShowError('Enter your username and API key in Settings first.', 'No credentials found');
     return;
@@ -714,6 +733,9 @@ function _openGDDropdown(btn, trackName, artistName) {
         if (typeof showToast === 'function') showToast('Cover art not available', 'error');
       }
     }},
+    { icon: 'delete',        label: 'Delete Scrobble',     fn: async () => {
+      await _lfmDeleteScrobble(trackName, artistName, null);
+    }},
   ];
 
   const menu = document.createElement('div');
@@ -1223,7 +1245,7 @@ function _genresShowError(sub, title) {
 
 // ── Tiny helpers ──────────────────────────────────────────────
 function _esc(str) {
-  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(str || '').replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'&quot;');
 }
 function _escAttr(str) {
   return String(str || '').replace(/'/g,"\\'").replace(/"/g,'\\"');
