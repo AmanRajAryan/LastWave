@@ -34,8 +34,13 @@ const _CW_EDGE_PAD = 16;   // inset from canvas edge to wheel rim (CSS px)
 //  SCREEN ENTRY POINT
 // ═════════════════════════════════════════════════════════════
 window.screen_settings = function () {
-  document.body.classList.add('settings-open');
-  _injectBackButton();
+  // Register hardware-back handler so the Android back button
+  // and any navigation pop returns via the history stack.
+  // No top back button is injected and the bottom nav stays visible.
+  window._lwScreenBackHandlers['settings'] = function () {
+    _goBack();
+    return true;
+  };
 
   const elUser   = document.getElementById('settingsUsername');
   const elKey    = document.getElementById('settingsApiKey');
@@ -50,30 +55,18 @@ window.screen_settings = function () {
 };
 
 // ─────────────────────────────────────────────────────────────
-//  Back button
+//  Back navigation
 // ─────────────────────────────────────────────────────────────
-function _injectBackButton() {
-  if (document.getElementById('settingsBackBtn')) return;
-  const topbarLeft = document.querySelector('.topbar-left');
-  if (!topbarLeft) return;
-  const logo = topbarLeft.querySelector('svg');
-  if (logo) logo.style.display = 'none';
-  const btn = document.createElement('button');
-  btn.id        = 'settingsBackBtn';
-  btn.className = 'settings-back-btn';
-  btn.setAttribute('aria-label', 'Back');
-  btn.innerHTML = '<span class="material-symbols-rounded">arrow_back</span>';
-  btn.onclick   = _goBack;
-  topbarLeft.insertBefore(btn, topbarLeft.firstChild);
-}
-
 function _goBack() {
-  const logo = document.querySelector('.topbar-left svg');
-  if (logo) logo.style.display = '';
-  const btn = document.getElementById('settingsBackBtn');
-  if (btn) btn.remove();
   document.body.classList.remove('settings-open');
-  navigateTo('home');
+  delete window._lwScreenBackHandlers['settings'];
+  // Pop nav history stack if possible, otherwise fall back to home
+  if (typeof _navHistory !== 'undefined' && _navHistory.length > 0) {
+    const prev = _navHistory.pop();
+    navigateTo(prev, { isBack: true });
+  } else {
+    navigateTo('home', { isBack: true });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -83,6 +76,7 @@ function _refreshToggles() {
   _setToggle('amoledToggle',        document.body.classList.contains('amoled-mode'));
   _setToggle('dynamicThemeToggle',  state.accentMode === 'dynamic');
   _setToggle('itunesArtworkToggle', localStorage.getItem('lw_use_itunes') !== '0');
+  _setToggle('lbzArtworkToggle',    localStorage.getItem('lw_use_lbz')    !== '0');
 }
 
 function _setToggle(id, active) {
@@ -177,6 +171,13 @@ function toggleItunesArtwork() {
   const next  = !wasOn;
   localStorage.setItem('lw_use_itunes', next ? '1' : '0');
   _setToggle('itunesArtworkToggle', next);
+}
+
+function toggleLbzArtwork() {
+  const wasOn = localStorage.getItem('lw_use_lbz') !== '0';
+  const next  = !wasOn;
+  localStorage.setItem('lw_use_lbz', next ? '1' : '0');
+  _setToggle('lbzArtworkToggle', next);
 }
 
 function setPaletteAccent(hue) {

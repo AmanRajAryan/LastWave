@@ -449,6 +449,24 @@ function _plOpenTrackMenu(btn, trackName, artistName, plId) {
         }
       }
     },
+    {
+      icon: 'delete', label: 'Delete Scrobble',
+      fn: () => {
+        if (!state.sessionKey) { showToast('Sign in to delete scrobbles', 'error'); return; }
+        showModal(
+          'Delete Scrobble?',
+          `Remove \u201c${trackName}\u201d by ${artistName} from your Last.fm history?`,
+          async () => {
+            const ok = await _lfmDeleteScrobble(trackName, artistName, null);
+            if (ok) {
+              document.querySelectorAll(
+                `.pl-track-row[data-lp-name="${CSS.escape(trackName)}"][data-lp-artist="${CSS.escape(artistName)}"]`
+              ).forEach(row => row.remove());
+            }
+          }
+        );
+      }
+    },
   ];
 
   const menu = document.createElement('div');
