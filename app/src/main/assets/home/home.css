@@ -363,15 +363,21 @@
   /* Must NOT have overflow:hidden here — child scroll needs natural height */
 }
 
-/* Each track item is ~64px tall (9px padding × 2 + 46px art).
-   5 items = 320px. We set 325px so the 5th item is never clipped
-   at the scroll container boundary. padding-bottom adds scroll-through
-   breathing room after the last item. The nav bar gap is handled by
-   the outer .home-screen padding — no 100dvh calc needed.
-   padding-top: 6px gives the first item (especially Now Playing) breathing
-   room from the divider above so it isn't flush-cut at the card edge. */
+/* Height budget (all values are dp):
+     padding-top:  6px
+     NOW PLAYING row (when present):  64px body + 6px margin-bottom = 70px
+     TODAY date header (after NP):    6px margin-top + 1px border +
+                                       14px padding-top + 11px text +
+                                       7px padding-bottom = 39px
+   OR  TODAY date header (first child, no NP): 10px + 11px + 7px = 28px
+     5 track items × 64px = 320px
+   ─────────────────────────────────────────────────────────────
+     With NowPlaying:  6 + 70 + 39 + 320 = 435px  →  440px fits cleanly
+     Without NowPlaying: 6 + 28 + 320 = 354px      →  same ceiling, fine
+   padding-bottom (20px) is post-last-item breathing room only.
+   Nav-bar gap is handled by outer .home-screen bottom padding.          */
 .home-mix-scroll {
-  max-height: 325px;
+  max-height: 440px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
@@ -395,6 +401,7 @@
   align-items: center;
   gap: 12px;
   padding: 9px 18px;
+  min-height: 64px;
   position: relative;
   cursor: pointer;
   transition: background 0.12s;
@@ -448,11 +455,9 @@
   font-size: 12px;
   font-weight: 400;
   color: var(--md-on-surface-variant);
-  /* Allow up to 2 lines for long artist strings like "Artist A, Artist B, Artist C" */
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.35;
 }
 .home-track-count {
@@ -835,4 +840,35 @@
   margin: 0 12px 4px;
   background: var(--md-outline-variant);
   opacity: 0.5;
+}
+/* ══════════════════════════════════════════════════════════════
+   DATE GROUP HEADERS — listening history
+   ══════════════════════════════════════════════════════════════ */
+.home-date-header {
+  padding: 18px 18px 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--md-primary);
+  line-height: 1;
+  user-select: none;
+  pointer-events: none;
+}
+
+/* First date header — less top padding */
+.home-tracks-wrap .home-date-header:first-child {
+  padding-top: 10px;
+}
+
+/* Suppress the inset divider line above the first track after a date header */
+.home-date-header + .home-track-item::before {
+  display: none !important;
+}
+
+/* Visual separation: Now Playing row sits above the first date group header */
+.home-track-nowplaying + .home-date-header {
+  margin-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--md-outline-variant) 35%, transparent);
+  padding-top: 14px;
 }

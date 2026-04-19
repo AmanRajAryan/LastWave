@@ -2078,9 +2078,28 @@ async function startMixFromTrack(trackName, artistName) {
       return artistCount[k] <= 3;
     });
 
+    // Relax artist cap progressively so we always reach MIX_SIZE
+    let usePool = diverse;
+    if (usePool.length < MIX_SIZE) {
+      const ac2 = {};
+      usePool = sorted.filter(t => {
+        const k = (t.artist || '').toLowerCase();
+        ac2[k] = (ac2[k] || 0) + 1;
+        return ac2[k] <= 6;
+      });
+    }
+    if (usePool.length < MIX_SIZE) usePool = sorted;
+
     // Prefer unseen tracks
-    const fresh = _filterFresh(diverse);
-    let result  = (fresh.length >= Math.min(MIX_SIZE, 8) ? fresh : diverse).slice(0, MIX_SIZE);
+    const fresh = _filterFresh(usePool);
+    let result  = (fresh.length >= Math.min(MIX_SIZE, 8) ? fresh : usePool).slice(0, MIX_SIZE);
+
+    // Pad to exactly MIX_SIZE if the pool was small
+    if (result.length < MIX_SIZE) {
+      const usedKeys = new Set(result.map(t => `${t.name}|${t.artist}`.toLowerCase()));
+      const padding  = usePool.filter(t => !usedKeys.has(`${t.name}|${t.artist}`.toLowerCase()));
+      result = [...result, ...padding].slice(0, MIX_SIZE);
+    }
 
     // Enrich with artwork
     setLoadingText('Loading album artwork…');
@@ -2099,6 +2118,69 @@ async function startMixFromTrack(trackName, artistName) {
     showLoading(false);
     showToast(e.message || 'Failed to generate mix', 'error');
     showResultsEmpty();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  DELETE SCROBBLE
+//  Uses track.unlove (authenticated signed call).
+//  Requires sessionKey obtained via startLastFmAuth().
+//
+//  Signed POST — params sorted alphabetically for api_sig:
+//    api_key{KEY}artist{ARTIST}methodtrack.scrobble.deletesk{SK}timestamp{TS}track{TRACK}{SECRET}
+// ══════════════════════════════════════════════════════════════
+async function _lfmDeleteScrobble(trackName, artistName, tsMs) {
+  if (!state.apiKey || !state.apiSecret) {
+    showToast('API credentials required — go to Settings', 'error');
+    return false;
+  }
+
+  if (!state.sessionKey) {
+    // No OAuth session — prompt user to authorize; do not spam error toasts
+    showModal(
+      'Authorization Required',
+      'Deleting scrobbles requires LastWave to be authorized with your Last.fm account. Tap Authorize to open the Last.fm login page, then return to the app and try again.',
+      () => startLastFmAuth()
+    );
+    // Relabel the confirm button so the action is unambiguous
+    const btn = document.getElementById('modalConfirm');
+    if (btn) btn.textContent = 'Authorize';
+    return false;
+  }
+
+  if (!tsMs) {
+    showToast('Cannot delete — scrobble has no timestamp', 'error');
+    return false;
+  }
+
+  // Last.fm requires timestamp in whole seconds (not milliseconds)
+  const tsSec = Math.floor(tsMs / 1000);
+
+  try {
+    // lfmCallSigned builds and signs the POST automatically.
+    // Params passed here (plus api_key added inside lfmCallSigned):
+    //   api_key, artist, method, sk, timestamp, track  — sorted a-z
+    // api_sig = md5(
+    //   "api_key"   + API_KEY   +
+    //   "artist"    + ARTIST    +
+    //   "method"    + "track.scrobble.delete" +
+    //   "sk"        + SK        +
+    //   "timestamp" + TIMESTAMP +
+    //   "track"     + TRACK     +
+    //   API_SECRET
+    // )
+    await lfmCallSigned({
+      method:    'track.scrobble.delete',
+      artist:    artistName,
+      track:     trackName,
+      timestamp: tsSec,
+      sk:        state.sessionKey,
+    });
+    showToast('Scrobble deleted \u2713', 'success');
+    return true;
+  } catch (e) {
+    showToast(e.message || 'Could not delete scrobble', 'error');
+    return false;
   }
 }
 

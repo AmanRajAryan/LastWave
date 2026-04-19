@@ -52,6 +52,7 @@ window.screen_settings = function () {
   _refreshToggles();
   _refreshPaletteActive();
   _refreshSeenCount();
+  _refreshApiSection();
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -115,6 +116,44 @@ function _refreshSeenCount() {
   if (sc) sc.textContent = getSeenTracksCount().toLocaleString();
 }
 
+// ─────────────────────────────────────────────────────────────
+//  API section — show inputs OR logged-in state
+// ─────────────────────────────────────────────────────────────
+function _refreshApiSection() {
+  const loggedIn   = !!(state.username && state.apiKey && state.apiSecret);
+  const inputsEl   = document.getElementById('apiInputsSection');
+  const loggedInEl = document.getElementById('apiLoggedInSection');
+  const headerEl   = document.getElementById('apiConfigHeader');
+  const userLabel  = document.getElementById('apiLoggedInUser');
+  if (inputsEl)   inputsEl.classList.toggle('hidden', loggedIn);
+  if (loggedInEl) loggedInEl.classList.toggle('hidden', !loggedIn);
+  if (headerEl)   headerEl.classList.toggle('hidden', loggedIn);
+  if (userLabel)  userLabel.textContent = state.username || '';
+}
+
+function logoutApiCredentials() {
+  showModal(
+    'Remove API Credentials?',
+    'This will clear your username, API key and secret. Playlists and history are kept.',
+    () => {
+      state.username  = '';
+      state.apiKey    = '';
+      state.apiSecret = '';
+      localStorage.removeItem('lw_username');
+      localStorage.removeItem('lw_apikey');
+      localStorage.removeItem('lw_apisecret');
+      const elUser   = document.getElementById('settingsUsername');
+      const elKey    = document.getElementById('settingsApiKey');
+      const elSecret = document.getElementById('settingsApiSecret');
+      if (elUser)   elUser.value   = '';
+      if (elKey)    elKey.value    = '';
+      if (elSecret) elSecret.value = '';
+      _refreshApiSection();
+      showToast('Credentials removed', 'success');
+    }
+  );
+}
+
 window.screen_settings_refreshAuth = function () {
   if (state.currentPage !== 'settings') return;
   _refreshToggles();
@@ -139,6 +178,7 @@ function saveApiCredentials() {
   localStorage.setItem('lw_apikey',    ak);
   localStorage.setItem('lw_apisecret', as);
   showToast('API credentials saved \u2713', 'success');
+  _refreshApiSection();
 }
 
 function toggleAmoled() {
