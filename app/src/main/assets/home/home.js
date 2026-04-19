@@ -23,6 +23,17 @@ let _homeCurrentPage   = 1;
 let _homeIsLoadingMore = false;
 let _homeHasMore       = true;
 
+// ── Period top-tracks cache ───────────────────────────────────
+// Holds top tracks fetched for Last 7 Days / Last 30 Days modes.
+// Keyed by days (7 or 30). Null means "not yet fetched".
+// Reset on user change / pull-to-refresh so data stays fresh.
+let _homeDateTracksCache   = { 7: null, 30: null };
+let _homeDateFetching      = { 7: false, 30: false };
+
+// Monotonic token — incremented each time a period mode is selected.
+// In-flight fetches compare against this; stale ones abort silently.
+let _homePeriodFetchToken  = 0;
+
 // ── Auto-refresh ──────────────────────────────────────────────
 let _homeAutoRefreshTimer = null;
 const _HOME_REFRESH_INTERVAL = 30000;   // 30 s — faster list updates
@@ -117,12 +128,28 @@ async function _homeAutoRefreshNow() {
     const rawArr = Array.isArray(raw) ? raw : (raw ? [raw] : []);
     const filtered = rawArr.filter(t => !(t['@attr']?.nowplaying === 'true'));
 
-    const incoming = normaliseTracks(filtered).map((t, i) => ({
-      ...t,
-      _recentIndex: i,
-      album:      filtered[i]?.album?.['#text'] || '',
-      _timestamp: filtered[i]?.date?.uts ? parseInt(filtered[i].date.uts) * 1000 : null,
-    }));
+    const incoming = filtered
+      .filter(t => t && t.name)
+      .map((t, i) => {
+        const imgArr   = Array.isArray(t.image) ? t.image : [];
+        const imgEntry =
+          imgArr.find(img => img.size === 'extralarge' && _isRealHomeImg(img['#text'])) ||
+          imgArr.find(img => img.size === 'large'      && _isRealHomeImg(img['#text'])) ||
+          imgArr.find(img => img.size === 'medium'     && _isRealHomeImg(img['#text'])) ||
+          imgArr.find(img =>                              _isRealHomeImg(img['#text']));
+        const artist = t.artist
+          ? (typeof t.artist === 'string' ? t.artist : (t.artist['#text'] || t.artist.name || ''))
+          : '';
+        return {
+          name:         t.name,
+          artist,
+          url:          t.url || '',
+          image:        imgEntry?.['#text'] || '',
+          album:        t.album?.['#text'] || '',
+          _recentIndex: i,
+          _timestamp:   t.date?.uts ? parseInt(t.date.uts, 10) * 1000 : null,
+        };
+      });
 
     // ── Remove live-session placeholders confirmed by the API ──
     // When a song finishes and we add it optimistically (_liveSession:true),
@@ -294,15 +321,39 @@ async function _fetchHomeData() {
 
     let recentTracks = [];
     if (recentData.status === 'fulfilled') {
-      const raw      = recentData.value?.recenttracks?.track;
-      const rawArr   = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-      const filtered = rawArr.filter(t => !(t['@attr']?.nowplaying === 'true'));
-      recentTracks   = normaliseTracks(filtered).map((t, i) => ({
-        ...t,
-        _recentIndex: i,
-        album:        filtered[i]?.album?.['#text'] || '',
-        _timestamp:   filtered[i]?.date?.uts ? parseInt(filtered[i].date.uts) * 1000 : null,
-      }));
+      const raw    = recentData.value?.recenttracks?.track;
+      const rawArr = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+      // Map directly on the filtered raw array so date.uts is always read
+      // from the same object as name/artist.  Do NOT use normaliseTracks()
+      // then index back into filtered[] — normaliseTracks filters internally
+      // so the indices diverge and _timestamp ends up null for every track.
+      recentTracks = rawArr
+        .filter(t => t && t.name && !(t['@attr']?.nowplaying === 'true'))
+        .map((t, i) => {
+          const imgArr   = Array.isArray(t.image) ? t.image : [];
+          const imgEntry =
+            imgArr.find(img => img.size === 'extralarge' && _isRealHomeImg(img['#text'])) ||
+            imgArr.find(img => img.size === 'large'      && _isRealHomeImg(img['#text'])) ||
+            imgArr.find(img => img.size === 'medium'     && _isRealHomeImg(img['#text'])) ||
+            imgArr.find(img =>                              _isRealHomeImg(img['#text']));
+          const artist = t.artist
+            ? (typeof t.artist === 'string' ? t.artist : (t.artist['#text'] || t.artist.name || ''))
+            : '';
+          const ts = t.date?.uts ? parseInt(t.date.uts, 10) * 1000 : null;
+          return {
+            name:         t.name,
+            artist,
+            url:          t.url || '',
+            image:        imgEntry?.['#text'] || '',
+            album:        t.album?.['#text'] || '',
+            _recentIndex: i,
+            _timestamp:   ts,
+          };
+        });
+      console.log('[Home] recentTracks:', recentTracks.length,
+        '| with timestamps:', recentTracks.filter(t => t._timestamp).length);
+    } else {
+      console.warn('[Home] recenttracks fetch failed:', recentData.reason);
     }
 
     let topTracks = [];
@@ -553,8 +604,7 @@ async function _checkNowPlaying() {
         }
         _nowPlayingTrack = { name: trackName, artist: artistName, image };
         if (state.currentPage === 'home') {
-          _renderList();              // re-render so the moved track shows first
-          _renderNowPlayingRow();
+          _renderList();              // re-render — NP is now inside the TODAY group
           // Async enrich art if API didn't provide one
           if (!image) _resolveNowPlayingArt(trackName, artistName);
         }
@@ -749,19 +799,258 @@ function setSortMode(mode) {
   _homeCurrentPage   = 1;
   _homeIsLoadingMore = false;
   _homeHasMore       = true;
-  const labels = { recent: 'Recent', mostPlayed: 'Most Played' };
+  const labels = { recent: 'Recent', mostPlayed: 'Most Played', last7days: 'Last 7 Days', last30days: 'Last 30 Days' };
   const labelEl = document.getElementById('homeSortLabel');
   if (labelEl) labelEl.textContent = labels[mode] || mode;
   document.getElementById('sortOptRecent')?.classList.toggle('active', mode === 'recent');
   document.getElementById('sortOptMostPlayed')?.classList.toggle('active', mode === 'mostPlayed');
+  document.getElementById('sortOptLast7Days')?.classList.toggle('active', mode === 'last7days');
+  document.getElementById('sortOptLast30Days')?.classList.toggle('active', mode === 'last30days');
   document.getElementById('checkRecent')?.classList.toggle('hidden', mode !== 'recent');
   document.getElementById('checkMostPlayed')?.classList.toggle('hidden', mode !== 'mostPlayed');
-  _renderList();
-  _setupInfiniteScroll();
-  // After a sort switch to Popular, enrich any tracks that are missing artwork
-  if (mode === 'mostPlayed') {
-    _enrichHomeArt(_homeAllTracks);
+  document.getElementById('checkLast7Days')?.classList.toggle('hidden', mode !== 'last7days');
+  document.getElementById('checkLast30Days')?.classList.toggle('hidden', mode !== 'last30days');
+
+  if (mode === 'last7days' || mode === 'last30days') {
+    // Cancel any in-flight period fetch by bumping the token
+    _homePeriodFetchToken++;
+    const token = _homePeriodFetchToken;
+    const days  = mode === 'last7days' ? 7 : 30;
+
+    // Reset cache and guard for this period
+    _homeDateTracksCache[days] = null;
+    _homeDateFetching[days]    = false;
+
+    // Show a spinner instead of wiping the list — prevents blank-screen flicker
+    _showPeriodLoadingState();
+    _setupInfiniteScroll();
+
+    // Use user.gettoptracks with the correct period parameter
+    const period = mode === 'last7days' ? '7day' : '1month';
+    _fetchTopTracksForPeriod(period, days, token);
+  } else {
+    _renderList();
+    _setupInfiniteScroll();
+    if (mode === 'mostPlayed') {
+      _enrichHomeArt(_homeAllTracks);
+    }
   }
+}
+
+/**
+ * Shows a centered spinner in the track list while period data is loading.
+ * Called only when switching to last7days / last30days so the previous list
+ * is not wiped until real data has arrived.
+ */
+function _showPeriodLoadingState() {
+  const list = document.getElementById('dailyMixList');
+  if (!list) return;
+  let wrap = list.querySelector('.home-tracks-wrap');
+  if (!wrap) {
+    wrap = document.createElement('div');
+    wrap.className = 'home-tracks-wrap';
+    list.appendChild(wrap);
+  }
+  wrap.innerHTML = `
+    <div style="display:flex;justify-content:center;align-items:center;padding:48px 0;gap:10px;color:var(--md-outline,#888);font-size:13px;">
+      <span class="material-symbols-rounded" style="animation:spin 1s linear infinite;font-size:22px;">refresh</span>
+      Loading…
+    </div>`;
+}
+
+/**
+ * Fetches top tracks for a given period using user.gettoptracks.
+ *
+ * period  — '7day' | '1month'  (Last.fm API parameter value)
+ * days    — 7 | 30             (used as cache key)
+ * token   — monotonic token from _homePeriodFetchToken; stale fetches abort.
+ *
+ * Results are stored in _homeDateTracksCache[days] and rendered exactly like
+ * "Most Played" — flat list sorted by playcount, with a playcount badge.
+ */
+async function _fetchTopTracksForPeriod(period, days, token) {
+  if (!state.username || !state.apiKey) return;
+  const targetMode = days === 7 ? 'last7days' : 'last30days';
+
+  _homeDateFetching[days] = true;
+  const accumulated = [];
+  let page       = 1;
+  let totalPages = 1;
+
+  try {
+    do {
+      // Abort if the user switched away or a newer fetch was triggered
+      if (_homeSortMode !== targetMode || _homePeriodFetchToken !== token) return;
+
+      const data = await lfmCall({
+        method:  'user.gettoptracks',
+        user:    state.username,
+        period,
+        limit:   50,
+        page,
+      });
+
+      if (_homeSortMode !== targetMode || _homePeriodFetchToken !== token) return;
+
+      const attr = data?.toptracks?.['@attr'];
+      totalPages  = parseInt(attr?.totalPages || 1, 10);
+
+      const raw    = data?.toptracks?.track;
+      const rawArr = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+
+      const pageTracks = rawArr.filter(t => t && t.name).map(t => {
+        const imgArr   = Array.isArray(t.image) ? t.image : [];
+        const imgEntry =
+          imgArr.find(i => i.size === 'extralarge' && _isRealHomeImg(i['#text'])) ||
+          imgArr.find(i => i.size === 'large'      && _isRealHomeImg(i['#text'])) ||
+          imgArr.find(i => i.size === 'medium'     && _isRealHomeImg(i['#text'])) ||
+          imgArr.find(i =>                            _isRealHomeImg(i['#text']));
+        const artist = t.artist
+          ? (typeof t.artist === 'string' ? t.artist : (t.artist.name || t.artist['#text'] || ''))
+          : '';
+        return {
+          name:       t.name,
+          artist,
+          url:        t.url || '',
+          image:      imgEntry?.['#text'] || '',
+          _playCount: parseInt(t.playcount || 0),
+        };
+      });
+
+      accumulated.push(...pageTracks);
+
+      // Update cache and re-render after the FIRST page so results appear quickly.
+      // Subsequent pages append via _loadMoreTracks (infinite scroll).
+      if (_homeSortMode === targetMode && _homePeriodFetchToken === token) {
+        _homeDateTracksCache[days] = [...accumulated];
+        _homeHasMore = page < totalPages;
+        _renderList();
+      }
+
+      page++;
+      // Only load the first page here; infinite scroll handles the rest
+      break;
+
+    } while (page <= totalPages);
+
+    if (_homeSortMode === targetMode && _homePeriodFetchToken === token) {
+      _enrichHomeArt(accumulated.filter(t => !t.image));
+    }
+  } catch {
+    // Show empty state so the spinner doesn't hang forever
+    if (_homeSortMode === targetMode && _homePeriodFetchToken === token) {
+      _homeDateTracksCache[days] = _homeDateTracksCache[days] ?? [];
+      _renderList();
+    }
+  } finally {
+    _homeDateFetching[days] = false;
+  }
+}
+
+/**
+ * Returns a new array with the current NowPlaying track prepended as a
+ * synthetic entry timestamped "now".  This makes _renderGroupedByDate
+ * place it as the FIRST item INSIDE the TODAY date group, not above it.
+ * If no track is playing, returns the original array unchanged.
+ */
+function _injectNowPlayingTrack(tracks) {
+  if (!_nowPlayingTrack) return tracks;
+  return [
+    {
+      name:          _nowPlayingTrack.name,
+      artist:        _nowPlayingTrack.artist,
+      image:         _nowPlayingTrack.image || '',
+      _timestamp:    Date.now(),   // ensures it falls in TODAY group
+      _isNowPlaying: true,
+    },
+    ...tracks,
+  ];
+}
+
+function _renderTrackRowHTML(t, rowIdx) {
+  const hasImg = t.image && t.image.trim();
+  const imgSrc = hasImg ? esc(t.image) : '';
+
+  // ── NowPlaying variant — tinted row with wave overlay + badge ──
+  if (t._isNowPlaying) {
+    return `
+    <div class="home-track-item home-track-nowplaying"
+         data-lp-name="${escAttr(t.name)}" data-lp-artist="${escAttr(t.artist)}"
+         onclick="openTrackOnYouTube('${escAttr(t.name)}','${escAttr(t.artist)}')">
+      <div class="home-track-art-wrap home-np-art-wrap">
+        ${hasImg ? `<img src="${imgSrc}" alt="" class="home-track-art home-np-art" loading="eager" onerror="this.classList.add('errored')">` : ''}
+        <span class="material-symbols-rounded home-track-art-fallback"${hasImg ? '' : ' style="display:block"'}>graphic_eq</span>
+        <div class="home-np-wave" aria-hidden="true">
+          <span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+      <div class="home-track-info">
+        <div class="home-track-name">${esc(t.name)}</div>
+        <div class="home-track-artist">${esc(t.artist)}</div>
+      </div>
+      <div class="home-np-badge">
+        <span class="home-np-dot" aria-hidden="true"></span>
+        <span>Now Playing</span>
+      </div>
+      <button class="home-track-menu"
+              onclick="event.stopPropagation();_openTrackDropdown(this,'${escAttr(t.name)}','${escAttr(t.artist)}')"
+              aria-label="More options">
+        <span class="material-symbols-rounded">more_vert</span>
+      </button>
+    </div>`;
+  }
+
+  // ── Standard track row ──
+  const imgTag = hasImg
+    ? `<img src="${imgSrc}" alt="" class="home-track-art" loading="${rowIdx < 3 ? 'eager' : 'lazy'}" onerror="this.classList.add('errored')">`
+    : '';
+  const fallbackVis = hasImg ? '' : 'style="display:block"';
+  let rightBadge = '';
+  if ((_homeSortMode === 'mostPlayed' || _homeSortMode === 'last7days' || _homeSortMode === 'last30days') && t._playCount) {
+    const countLabel = t._playCount >= 1000
+      ? (t._playCount / 1000).toFixed(1) + 'k'
+      : String(t._playCount);
+    rightBadge = `<span class="home-track-count">${countLabel}</span>`;
+  }
+  const lpAttr   = `data-lp-name="${escAttr(t.name)}" data-lp-artist="${escAttr(t.artist)}"`;
+  const animStyle = rowIdx < 3 ? ` style="animation:hw-fade-slide 0.3s ease ${rowIdx * 0.06}s both"` : '';
+  return `
+    <div class="home-track-item" ${lpAttr}${animStyle}
+         onclick="openTrackOnYouTube('${escAttr(t.name)}','${escAttr(t.artist)}')">
+      <div class="home-track-art-wrap">
+        ${imgTag}
+        <span class="material-symbols-rounded home-track-art-fallback" ${fallbackVis}>music_note</span>
+      </div>
+      <div class="home-track-info">
+        <div class="home-track-name">${esc(t.name)}</div>
+        <div class="home-track-artist">${esc(t.artist)}</div>
+      </div>
+      ${rightBadge}
+      <button
+        class="home-track-menu"
+        onclick="event.stopPropagation();_openTrackDropdown(this,'${escAttr(t.name)}','${escAttr(t.artist)}')"
+        aria-label="More options"
+      >
+        <span class="material-symbols-rounded">more_vert</span>
+      </button>
+    </div>`;
+}
+
+function _renderGroupedByDate(tracks) {
+  if (!tracks.length) return '';
+  let html = '';
+  let lastDateKey = null;
+  tracks.forEach((t, rowIdx) => {
+    if (t._timestamp) {
+      const dateKey = _getDateKey(t._timestamp);
+      if (dateKey !== lastDateKey) {
+        lastDateKey = dateKey;
+        html += `<div class="home-date-header" data-date-key="${esc(dateKey)}">${esc(_getDateLabel(t._timestamp))}</div>`;
+      }
+    }
+    html += _renderTrackRowHTML(t, rowIdx);
+  });
+  return html;
 }
 
 function _renderList() {
@@ -780,87 +1069,38 @@ function _renderList() {
       </div>`;
     return;
   }
-  let sorted = [..._homeAllTracks];
+
   if (_homeSortMode === 'mostPlayed') {
-    sorted.sort((a, b) => (b._playCount || 0) - (a._playCount || 0));
+    const sorted = [..._homeAllTracks].sort((a, b) => (b._playCount || 0) - (a._playCount || 0));
+    tracksWrap.innerHTML = sorted.map((t, i) => _renderTrackRowHTML(t, i)).join('');
+  } else if (_homeSortMode === 'last7days' || _homeSortMode === 'last30days') {
+    const days   = _homeSortMode === 'last7days' ? 7 : 30;
+    const source = _homeDateTracksCache[days];
+    // Cache is null while the first fetch is in flight — keep the spinner visible,
+    // do NOT wipe the DOM. _fetchTopTracksForPeriod will call _renderList again
+    // once the first page arrives.
+    if (!source) return;
+    const sorted = [...source].sort((a, b) => (b._playCount || 0) - (a._playCount || 0));
+    tracksWrap.innerHTML = sorted.length
+      ? sorted.map((t, i) => _renderTrackRowHTML(t, i)).join('')
+      : `<div style="padding:24px 18px;text-align:center;color:var(--md-outline);font-size:13px;">No tracks found for this period.</div>`;
   } else {
-    sorted.sort((a, b) => {
-      const ai = a._recentIndex !== undefined ? a._recentIndex : 9999;
-      const bi = b._recentIndex !== undefined ? b._recentIndex : 9999;
-      return ai - bi;
+    // Recent: sort by timestamp newest-first; tracks with no timestamp go to end
+    const sorted = [..._homeAllTracks].sort((a, b) => {
+      if (a._timestamp && b._timestamp) return b._timestamp - a._timestamp;
+      if (a._timestamp) return -1;
+      if (b._timestamp) return  1;
+      return (a._recentIndex || 0) - (b._recentIndex || 0);
     });
+    console.log('[Home] _renderList sorted:', sorted.length,
+      '| with ts:', sorted.filter(t => t._timestamp).length);
+    // NowPlaying is injected as the first item inside TODAY's date group
+    tracksWrap.innerHTML = _renderGroupedByDate(_injectNowPlayingTrack(sorted));
   }
-  let displayTracks = sorted;
-  if (_homeSortMode === 'recent') {
-    displayTracks = _dedupeRecentTracks(sorted);
-  }
-  const displaySlice = displayTracks.slice(0, 20);
-  tracksWrap.innerHTML = displaySlice.map((t, rowIdx) => {
-    const hasImg = t.image && t.image.trim();
-    const imgTag = hasImg
-      ? `<img src="${esc(t.image)}" alt="" class="home-track-art" loading="${rowIdx < 3 ? 'eager' : 'lazy'}"
-             onerror="this.classList.add('errored')">`
-      : '';
-    const fallbackVis = hasImg ? '' : 'style="display:block"';
-    let rightBadge = '';
-    if (_homeSortMode === 'mostPlayed' && t._playCount) {
-      const countLabel = t._playCount >= 1000
-        ? (t._playCount / 1000).toFixed(1) + 'k'
-        : String(t._playCount);
-      rightBadge = `<span class="home-track-count">${countLabel}</span>`;
-    } else if (_homeSortMode === 'recent' && t._dupCount && t._dupCount > 1) {
-      rightBadge = `<span class="home-track-count home-track-dup-count">×${t._dupCount}</span>`;
-    }
-    const lpAttr = `data-lp-name="${escAttr(t.name)}" data-lp-artist="${escAttr(t.artist)}"`;
-    // Newest tracks animate in
-    const animStyle = rowIdx < 3 ? ` style="animation:hw-fade-slide 0.3s ease ${rowIdx * 0.06}s both"` : '';
-    return `
-      <div class="home-track-item" ${lpAttr}${animStyle}
-           onclick="openTrackOnYouTube('${escAttr(t.name)}','${escAttr(t.artist)}')">
-        <div class="home-track-art-wrap">
-          ${imgTag}
-          <span class="material-symbols-rounded home-track-art-fallback" ${fallbackVis}>music_note</span>
-        </div>
-        <div class="home-track-info">
-          <div class="home-track-name">${esc(t.name)}</div>
-          <div class="home-track-artist">${esc(t.artist)}</div>
-        </div>
-        ${rightBadge}
-        <button
-          class="home-track-menu"
-          onclick="event.stopPropagation();_openTrackDropdown(this,'${escAttr(t.name)}','${escAttr(t.artist)}')"
-          aria-label="More options"
-        >
-          <span class="material-symbols-rounded">more_vert</span>
-        </button>
-      </div>`;
-  }).join('');
+
   _bindLongPressCopy(tracksWrap);
   _setupInfiniteScroll();
-
-  // Re-inject Now Playing row at top if a track is still live
-  if (_nowPlayingTrack) {
-    requestAnimationFrame(() => _renderNowPlayingRow());
-  }
-}
-
-function _dedupeRecentTracks(tracks) {
-  if (!tracks.length) return tracks;
-  const countMap = new Map();
-  for (const t of tracks) {
-    const key = `${t.name}|${t.artist}`.toLowerCase();
-    countMap.set(key, (countMap.get(key) || 0) + 1);
-  }
-  const seen = new Set();
-  const result = [];
-  for (const t of tracks) {
-    const key = `${t.name}|${t.artist}`.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      result.push({ ...t, _dupCount: countMap.get(key) });
-    }
-  }
-  return result;
+  // NowPlaying is now rendered inline via _injectNowPlayingTrack — no separate step needed.
 }
 
 function _bindLongPressCopy(container) {
@@ -903,9 +1143,13 @@ async function _loadMoreTracks() {
   spinner.innerHTML = '<span class="material-symbols-rounded" style="animation:spin 1s linear infinite;color:var(--md-outline);font-size:22px">refresh</span>';
   wrap?.appendChild(spinner);
   try {
-    const isTop  = _homeSortMode === 'mostPlayed';
+    const isPeriod = _homeSortMode === 'last7days' || _homeSortMode === 'last30days';
+    const isTop    = _homeSortMode === 'mostPlayed' || isPeriod;
+    const period   = _homeSortMode === 'last7days'  ? '7day'
+                   : _homeSortMode === 'last30days' ? '1month'
+                   : 'overall';
     const params = isTop
-      ? { method: 'user.gettoptracks',   user: state.username, period: 'overall', limit: 50, page: _homeCurrentPage }
+      ? { method: 'user.gettoptracks',   user: state.username, period, limit: 50, page: _homeCurrentPage }
       : { method: 'user.getrecenttracks', user: state.username, limit: 50, page: _homeCurrentPage };
     const data = await lfmCall(params);
     let newTracks  = [];
@@ -929,19 +1173,68 @@ async function _loadMoreTracks() {
       const raw  = data?.recenttracks?.track;
       totalPages = parseInt(data?.recenttracks?.['@attr']?.totalPages || 1);
       const arr  = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-      newTracks  = normaliseTracks(arr.filter(t => !(t['@attr']?.nowplaying === 'true')));
+      const filteredArr = arr.filter(t => t && t.name && !(t['@attr']?.nowplaying === 'true'));
+      newTracks = filteredArr.map((t, i) => {
+        const imgArr   = Array.isArray(t.image) ? t.image : [];
+        const imgEntry =
+          imgArr.find(img => img.size === 'extralarge' && _isRealHomeImg(img['#text'])) ||
+          imgArr.find(img => img.size === 'large'      && _isRealHomeImg(img['#text'])) ||
+          imgArr.find(img => img.size === 'medium'     && _isRealHomeImg(img['#text'])) ||
+          imgArr.find(img =>                              _isRealHomeImg(img['#text']));
+        const artist = t.artist
+          ? (typeof t.artist === 'string' ? t.artist : (t.artist['#text'] || t.artist.name || ''))
+          : '';
+        return {
+          name:         t.name,
+          artist,
+          url:          t.url || '',
+          image:        imgEntry?.['#text'] || '',
+          album:        t.album?.['#text'] || '',
+          _recentIndex: (_homeCurrentPage - 1) * 50 + i,
+          _timestamp:   t.date?.uts ? parseInt(t.date.uts, 10) * 1000 : null,
+        };
+      });
     }
     _homeHasMore = _homeCurrentPage < totalPages;
-    const existingKeys = new Set(_homeAllTracks.map(t => `${t.name}|${t.artist}`.toLowerCase()));
-    const fresh = newTracks.filter(t => !existingKeys.has(`${t.name}|${t.artist}`.toLowerCase()));
-    if (fresh.length) {
-      _homeAllTracks = [..._homeAllTracks, ...fresh];
-      _appendTracksToDOM(fresh);
-      // Enrich artwork for newly loaded tracks (Popular sort images fix)
-      _enrichHomeArt(fresh);
+
+    if (newTracks.length) {
+      if (isPeriod) {
+        // Append to the period cache (dedupe by name+artist)
+        const days = _homeSortMode === 'last7days' ? 7 : 30;
+        const existing = _homeDateTracksCache[days] || [];
+        const existingKeys = new Set(existing.map(t => `${t.name}|${t.artist}`.toLowerCase()));
+        const fresh = newTracks.filter(t => !existingKeys.has(`${t.name}|${t.artist}`.toLowerCase()));
+        if (fresh.length) {
+          _homeDateTracksCache[days] = [...existing, ...fresh];
+          _appendTracksToDOM(fresh);
+          _enrichHomeArt(fresh.filter(t => !t.image));
+        }
+      } else if (isTop) {
+        // mostPlayed — append to _homeAllTracks
+        const existingKeys = new Set(_homeAllTracks.map(t => `${t.name}|${t.artist}`.toLowerCase()));
+        const fresh = newTracks.filter(t => !existingKeys.has(`${t.name}|${t.artist}`.toLowerCase()));
+        if (fresh.length) {
+          _homeAllTracks = [..._homeAllTracks, ...fresh];
+          _appendTracksToDOM(fresh);
+          _enrichHomeArt(fresh);
+        }
+      } else {
+        // Recent — dedupe by timestamp
+        const existingTimestamps = new Set(_homeAllTracks.filter(t => t._timestamp).map(t => t._timestamp));
+        const existingNameKeys   = new Set(_homeAllTracks.filter(t => !t._timestamp).map(t => `${t.name}|${t.artist}`.toLowerCase()));
+        const fresh = newTracks.filter(t => {
+          if (t._timestamp) return !existingTimestamps.has(t._timestamp);
+          return !existingNameKeys.has(`${t.name}|${t.artist}`.toLowerCase());
+        });
+        if (fresh.length) {
+          _homeAllTracks = [..._homeAllTracks, ...fresh];
+          _appendTracksToDOM(fresh);
+          _enrichHomeArt(fresh);
+        }
+      }
     }
   } catch {
-    _homeHasMore = false;
+    // Revert page so the next scroll event retries the same page.
     _homeCurrentPage--;
   } finally {
     _homeIsLoadingMore = false;
@@ -952,54 +1245,55 @@ async function _loadMoreTracks() {
 function _appendTracksToDOM(tracks) {
   const wrap = document.querySelector('.home-tracks-wrap');
   if (!wrap || !tracks.length) return;
-  const frag = document.createDocumentFragment();
-  tracks.forEach((t, idx) => {
-    const hasImg = t.image && t.image.trim();
 
-    let rightBadge = '';
-    if (_homeSortMode === 'mostPlayed' && t._playCount) {
-      const countLabel = t._playCount >= 1000
-        ? (t._playCount / 1000).toFixed(1) + 'k'
-        : String(t._playCount);
-      rightBadge = `<span class="home-track-count">${countLabel}</span>`;
-    } else if (_homeSortMode === 'recent') {
-      // Count how many times this track now appears in the full list
-      const key = `${t.name}|${t.artist}`.toLowerCase();
-      const total = _homeAllTracks.filter(x => `${x.name}|${x.artist}`.toLowerCase() === key).length;
-      if (total > 1) {
-        rightBadge = `<span class="home-track-count home-track-dup-count">×${total}</span>`;
-        // Also update any existing DOM row for this track
-        wrap.querySelectorAll('.home-track-item').forEach(row => {
-          if (row.dataset.lpName === t.name && row.dataset.lpArtist === t.artist) {
-            const existing = row.querySelector('.home-track-count');
-            if (existing) existing.textContent = `×${total}`;
-          }
-        });
+  const isFlat = _homeSortMode === 'mostPlayed' ||
+                 _homeSortMode === 'last7days'  ||
+                 _homeSortMode === 'last30days';
+
+  if (isFlat) {
+    // Flat list — just append rows in order
+    const frag = document.createDocumentFragment();
+    tracks.forEach((t, idx) => {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = _renderTrackRowHTML(t, idx);
+      frag.appendChild(tmp.firstElementChild);
+    });
+    wrap.appendChild(frag);
+  } else {
+    // Recent mode — preserve date grouping
+    // Sort new tracks newest-first; null timestamps go last
+    const sorted = [...tracks].sort((a, b) => {
+      if (a._timestamp && b._timestamp) return b._timestamp - a._timestamp;
+      if (a._timestamp) return -1;
+      if (b._timestamp) return  1;
+      return 0;
+    });
+    const frag = document.createDocumentFragment();
+
+    // Find the last date-key already rendered so we don't duplicate a header
+    const existingHeaders = wrap.querySelectorAll('.home-date-header');
+    let lastDateKey = existingHeaders.length > 0
+      ? existingHeaders[existingHeaders.length - 1].dataset.dateKey || null
+      : null;
+
+    sorted.forEach((t, idx) => {
+      if (t._timestamp) {
+        const dateKey = _getDateKey(t._timestamp);
+        if (dateKey !== lastDateKey) {
+          lastDateKey = dateKey;
+          const hdr = document.createElement('div');
+          hdr.className = 'home-date-header';
+          hdr.dataset.dateKey = dateKey;
+          hdr.textContent = _getDateLabel(t._timestamp);
+          frag.appendChild(hdr);
+        }
       }
-    }
-
-    const div = document.createElement('div');
-    div.className = 'home-track-item';
-    div.dataset.lpName   = t.name;
-    div.dataset.lpArtist = t.artist;
-    div.setAttribute('onclick', `openTrackOnYouTube('${escAttr(t.name)}','${escAttr(t.artist)}')`);
-    const loadingAttr = idx < 6 ? 'eager' : 'lazy';
-    div.innerHTML = `
-      <div class="home-track-art-wrap">
-        ${hasImg ? `<img src="${esc(t.image)}" alt="" class="home-track-art" loading="${loadingAttr}" onerror="this.classList.add('errored')">` : ''}
-        <span class="material-symbols-rounded home-track-art-fallback"${hasImg ? '' : ' style="display:block"'}>music_note</span>
-      </div>
-      <div class="home-track-info">
-        <div class="home-track-name">${esc(t.name)}</div>
-        <div class="home-track-artist">${esc(t.artist)}</div>
-      </div>
-      ${rightBadge}
-      <button class="home-track-menu" onclick="event.stopPropagation();_openTrackDropdown(this,'${escAttr(t.name)}','${escAttr(t.artist)}')" aria-label="More options">
-        <span class="material-symbols-rounded">more_vert</span>
-      </button>`;
-    frag.appendChild(div);
-  });
-  wrap.appendChild(frag);
+      const tmp = document.createElement('div');
+      tmp.innerHTML = _renderTrackRowHTML(t, idx);
+      frag.appendChild(tmp.firstElementChild);
+    });
+    wrap.appendChild(frag);
+  }
   _bindLongPressCopy(wrap);
 }
 
@@ -1165,7 +1459,10 @@ function _setupPullToRefresh() {
     if (_homePtr.indicator) _homePtr.indicator.style.transform = 'translateX(-50%) translateY(-48px)';
     if (delta >= 70 && state.username) {
       document.getElementById('profileScrobbles').textContent = '—';
-      _homeAllTracks  = [];
+      _homeAllTracks         = [];
+      _homeDateTracksCache   = { 7: null, 30: null };
+      _homeDateFetching      = { 7: false, 30: false };
+      _homePeriodFetchToken++;
       _homeIsFetching = false;
       _homeDataLoaded = false;
       _stopHomeAutoRefresh();
@@ -1184,7 +1481,10 @@ function saveUsername() {
   localStorage.setItem('lw_username', val);
   document.getElementById('homeUsernameSection').classList.add('hidden');
   document.getElementById('profileScrobbles').textContent = '—';
-  _homeAllTracks  = [];
+  _homeAllTracks         = [];
+  _homeDateTracksCache   = { 7: null, 30: null };
+  _homeDateFetching      = { 7: false, 30: false };
+  _homePeriodFetchToken++;
   _homeIsFetching = false;
   _homeDataLoaded = false;
   screen_home();
@@ -1193,7 +1493,10 @@ function saveUsername() {
 function clearUser() {
   state.username = '';
   localStorage.removeItem('lw_username');
-  _homeAllTracks  = [];
+  _homeAllTracks         = [];
+  _homeDateTracksCache   = { 7: null, 30: null };
+  _homeDateFetching      = { 7: false, 30: false };
+  _homePeriodFetchToken++;
   _homeIsFetching = false;
   _homeDataLoaded = false;
   _destroyListenTimer();
@@ -1225,9 +1528,27 @@ function _openTrackDropdown(btn, trackName, artistName) {
   _closeTrackDropdown();
   const trackEl   = btn.closest('.home-track-item');
   const lpName    = trackEl?.dataset?.lpName;
-  const matched   = _homeAllTracks.find(t => t.name === lpName && t.artist === artistName);
-  const tsMs      = matched?._timestamp || null;
-  const playedAgo = tsMs ? _formatRelativeTime(tsMs) : null;
+
+  // Primary match: exact name + artist (handles same song by different artists)
+  // Fallback: case-insensitive match in case HTML escaping diverges on special chars
+  // Also search the date-range cache when active (it may have tracks not in _homeAllTracks)
+  const _searchPool = () => {
+    if (_homeSortMode === 'last7days'  && _homeDateTracksCache[7])  return _homeDateTracksCache[7];
+    if (_homeSortMode === 'last30days' && _homeDateTracksCache[30]) return _homeDateTracksCache[30];
+    return _homeAllTracks;
+  };
+  const pool = _searchPool();
+  let matched = pool.find(t => t.name === lpName && t.artist === artistName);
+  if (!matched) {
+    const nameLower   = (lpName || trackName).toLowerCase();
+    const artistLower = artistName.toLowerCase();
+    matched = pool.find(
+      t => t.name.toLowerCase() === nameLower && t.artist.toLowerCase() === artistLower
+    );
+  }
+
+  const tsMs      = matched?._timestamp ?? null;
+  const playedAgo = tsMs ? _formatRelativeTime(tsMs) : 'Unknown';
 
   const items = [
     { icon: 'shuffle',       label: 'Start Mix from this', action: () => startMixFromTrack(trackName, artistName) },
@@ -1245,23 +1566,6 @@ function _openTrackDropdown(btn, trackName, artistName) {
       } else {
         showToast('Cover art not available', 'error');
       }
-    }},
-    { icon: 'delete', label: 'Delete Scrobble', action: () => {
-      if (!state.sessionKey) { showToast('Sign in to delete scrobbles', 'error'); return; }
-      showModal(
-        'Delete Scrobble?',
-        `Remove \u201c${trackName}\u201d by ${artistName} from your Last.fm history?`,
-        async () => {
-          const ok = await _lfmDeleteScrobble(trackName, artistName, tsMs);
-          if (ok) {
-            const idx = _homeAllTracks.findIndex(
-              t => t.name === trackName && t.artist === artistName &&
-                   (!tsMs || t._timestamp === tsMs)
-            );
-            if (idx !== -1) { _homeAllTracks.splice(idx, 1); _renderList(); }
-          }
-        }
-      );
     }},
   ];
 
@@ -1286,16 +1590,14 @@ function _openTrackDropdown(btn, trackName, artistName) {
     `<span style="color:var(--md-primary);font-weight:500">Explore this genre</span>`;
   menu.appendChild(exploreBtn);
 
-  // ── Played-ago header ────────────────────────────────────────
-  if (playedAgo) {
-    const divider0 = document.createElement('div');
-    divider0.className = 'track-dropdown-divider';
-    menu.appendChild(divider0);
-    const header = document.createElement('div');
-    header.className = 'track-dropdown-header';
-    header.innerHTML = `<span class="material-symbols-rounded">history</span>Played: ${playedAgo}`;
-    menu.appendChild(header);
-  }
+  // ── Played-ago header — always shown ────────────────────────
+  const divider0 = document.createElement('div');
+  divider0.className = 'track-dropdown-divider';
+  menu.appendChild(divider0);
+  const header = document.createElement('div');
+  header.className = 'track-dropdown-header';
+  header.innerHTML = `<span class="material-symbols-rounded">history</span>Played: ${playedAgo}`;
+  menu.appendChild(header);
 
   const divider = document.createElement('div');
   divider.className = 'track-dropdown-divider';
@@ -1313,7 +1615,7 @@ function _openTrackDropdown(btn, trackName, artistName) {
   document.body.appendChild(menu);
 
   const rect  = btn.getBoundingClientRect();
-  const mh    = items.length * 52 + (playedAgo ? 52 : 0) + 38 + 8; // genre row + possible header
+  const mh    = items.length * 52 + 52 + 38 + 8; // action items + played header + genre row
   const mw    = 224;
   let top  = rect.bottom + 6;
   let left = rect.right  - mw;
@@ -1372,6 +1674,9 @@ function _closeTrackDropdown() {
 }
 
 // ── Relative time ─────────────────────────────────────────────
+// ── Date / time display helpers ───────────────────────────────
+const _MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
 function _formatRelativeTime(tsMs) {
   if (!tsMs) return '';
   const diff = Date.now() - tsMs;
@@ -1381,11 +1686,41 @@ function _formatRelativeTime(tsMs) {
   if (m < 60)  return `${m}m ago`;
   const h = Math.floor(m / 60);
   if (h < 24)  return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7)   return `${d}d ago`;
-  const w = Math.floor(d / 7);
-  if (w < 5)   return `${w}w ago`;
-  const mo = Math.floor(d / 30);
-  if (mo < 12) return `${mo}mo ago`;
-  return `${Math.floor(d / 365)}y ago`;
+  // Beyond 24 h — show full date + time instead of "Xd ago"
+  const d     = new Date(tsMs);
+  const day   = d.getDate();
+  const mon   = _MONTHS_SHORT[d.getMonth()];
+  const yr    = d.getFullYear();
+  let   hr    = d.getHours();
+  const min   = String(d.getMinutes()).padStart(2, '0');
+  const ampm  = hr >= 12 ? 'PM' : 'AM';
+  hr = hr % 12 || 12;
+  return `${day} ${mon} ${yr} \u2022 ${hr}:${min} ${ampm}`;
+}
+
+function _formatTrackTime(tsMs) {
+  if (!tsMs) return '';
+  const d = new Date(tsMs);
+  let h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  return `${h}:${m} ${ampm}`;
+}
+
+function _getDateKey(tsMs) {
+  const d = new Date(tsMs);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+function _getDateLabel(tsMs) {
+  const now   = new Date();
+  const d     = new Date(tsMs);
+  const todayKey     = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
+  const trackKey     = _getDateKey(tsMs);
+  if (todayKey === trackKey) return 'Today';
+  const yest = new Date(now); yest.setDate(yest.getDate() - 1);
+  const yestKey = `${yest.getFullYear()}-${yest.getMonth()}-${yest.getDate()}`;
+  if (yestKey === trackKey) return 'Yesterday';
+  return `${d.getDate()} ${_MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
 }

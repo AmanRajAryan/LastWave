@@ -9,59 +9,77 @@
   <div class="section-title mt0">Last.fm Account</div>
 
   <div class="card settings-card api-config-card">
-    <div class="api-config-header">
+    <div class="api-config-header" id="apiConfigHeader">
       <span class="material-symbols-rounded api-config-icon">api</span>
       <div>
         <div class="auth-signin-title">API Configuration</div>
-        <div class="auth-signin-sub">Enter your credentials to enable personalized data</div>
+        <div class="auth-signin-sub" id="apiConfigSub">Enter your credentials to enable personalized data</div>
       </div>
     </div>
 
-    <!-- Username -->
-    <div class="settings-label">Username</div>
-    <input
-      type="text"
-      id="settingsUsername"
-      class="text-input"
-      placeholder="Your Last.fm username"
-      autocomplete="off"
-      autocorrect="off"
-      spellcheck="false"
-    />
+    <!-- Input fields — hidden once credentials are saved -->
+    <div id="apiInputsSection">
+      <!-- Username -->
+      <div class="settings-label">Username</div>
+      <input
+        type="text"
+        id="settingsUsername"
+        class="text-input"
+        placeholder="Your Last.fm username"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+      />
 
-    <!-- API Key -->
-    <div class="settings-label" style="margin-top:14px">API Key</div>
-    <input
-      type="text"
-      id="settingsApiKey"
-      class="text-input"
-      placeholder="Paste your 32-char API key"
-      autocomplete="off"
-      autocorrect="off"
-      spellcheck="false"
-    />
+      <!-- API Key -->
+      <div class="settings-label" style="margin-top:14px">API Key</div>
+      <input
+        type="text"
+        id="settingsApiKey"
+        class="text-input"
+        placeholder="Paste your 32-char API key"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+      />
 
-    <!-- API Secret -->
-    <div class="settings-label" style="margin-top:14px">API Secret</div>
-    <input
-      type="password"
-      id="settingsApiSecret"
-      class="text-input"
-      placeholder="Paste your API secret"
-      autocomplete="off"
-      autocorrect="off"
-      spellcheck="false"
-    />
+      <!-- API Secret -->
+      <div class="settings-label" style="margin-top:14px">API Secret</div>
+      <input
+        type="password"
+        id="settingsApiSecret"
+        class="text-input"
+        placeholder="Paste your API secret"
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+      />
 
-    <div class="settings-hint" style="margin-top:8px">
-      Get your key & secret at
-      <span class="link" onclick="openUrl('https://www.last.fm/api/account/create')">last.fm/api</span>
+      <div class="settings-hint" style="margin-top:8px">
+        Get your key & secret at
+        <span class="link" onclick="openUrl('https://www.last.fm/api/account/create')">last.fm/api</span>
+      </div>
+
+      <button class="btn-primary full-width api-save-btn" onclick="saveApiCredentials()">
+        <span class="material-symbols-rounded">save</span>
+        Save API
+      </button>
     </div>
 
-    <button class="btn-primary full-width api-save-btn" onclick="saveApiCredentials()">
-      <span class="material-symbols-rounded">save</span>
-      Save API
-    </button>
+    <!-- Logged-in state — shown after credentials are saved -->
+    <div id="apiLoggedInSection" class="hidden">
+      <div class="api-signed-in-block">
+        <span class="material-symbols-rounded api-signed-in-avatar">account_circle</span>
+        <div class="api-signed-in-info">
+          <div class="api-signed-in-label">Signed in as</div>
+          <div class="api-signed-in-name" id="apiLoggedInUser"></div>
+        </div>
+      </div>
+      <button class="btn-secondary full-width api-logout-btn" onclick="logoutApiCredentials()">
+        <span class="material-symbols-rounded">logout</span>
+        Logout
+      </button>
+    </div>
   </div>
 
   <!-- ── Appearance ─────────────────────────────────────────── -->
@@ -105,7 +123,7 @@
     <div class="settings-toggle-row settings-toggle-row--bordered" onclick="toggleLbzArtwork()" style="cursor:pointer">
       <div>
         <div class="settings-toggle-label">ListenBrainz Artwork</div>
-        <div class="settings-hint">Use Cover Art Archive as final artwork fallback</div>
+        <div class="settings-hint">Fetch album art using ListenBrainz</div>
       </div>
       <div class="toggle-wrap">
         <div class="toggle" id="lbzArtworkToggle"></div>
@@ -236,7 +254,7 @@
     </div>
     <div class="info-row">
       <span>Source</span>
-      <span class="link" onclick="openUrl('https://github.com/AmanRajAryan/LastWave')">GitHub</span>
+      <span class="link info-link" onclick="openUrl('https://github.com/AmanRajAryan/LastWave')">GitHub</span>
     </div>
   </div>
 

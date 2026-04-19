@@ -162,7 +162,10 @@ async function navigateTo(page, opts) {
   document.querySelectorAll('.nav-item').forEach(n => {
     n.classList.toggle('active', n.dataset.page === page);
   });
-  
+
+  // Toggle settings-open — controls bottom nav / search / avatar visibility
+  document.body.classList.toggle('settings-open', page === 'settings');
+
   state.currentPage = page;
   
   // 7. Call screen init — fire-and-forget so a crashing/slow screen init

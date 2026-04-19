@@ -321,31 +321,13 @@
 .info-row span:first-child { color: var(--text2); }
 .info-row span:last-child  { font-weight: 600; color: var(--text); }
 
-/* ── Settings back button — Material You pill container ──────── */
-.settings-back-btn {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.09);
-  border: none;
-  cursor: pointer;
+/* ── Back button — shown in topbar only when settings is open ── */
+body.settings-open #topbarBackBtn {
+  display: flex !important;
   color: var(--text);
-  flex-shrink: 0;
-  -webkit-tap-highlight-color: transparent;
-  transition: background 0.15s ease, transform 0.12s ease;
 }
-.settings-back-btn:active {
-  background: rgba(255, 255, 255, 0.18);
-  transform: scale(0.92);
-}
-.settings-back-btn .material-symbols-rounded {
-  font-size: 22px;
-  color: var(--text);
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+body.settings-open .topbar-left > svg {
+  display: none !important;
 }
 
 /* Consistent hairline border — same token as .settings-divider */
@@ -547,4 +529,52 @@ body.settings-open #headerUserBtn {
   font-size: 14px;
   font-weight: 700;
   padding: 13px 0;
+}
+
+/* ── GitHub link — no underline ──────────────────────────────── */
+.info-link {
+  text-decoration: none !important;
+}
+
+/* ── Logged-in authenticated state card ──────────────────────── */
+.api-signed-in-block {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--md-surface-container, rgba(255,255,255,0.06));
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 14px;
+}
+.api-signed-in-avatar {
+  font-size: 40px;
+  color: var(--md-primary);
+  font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 40;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.api-signed-in-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.api-signed-in-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+.api-signed-in-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.api-logout-btn {
+  font-size: 14px;
 }
