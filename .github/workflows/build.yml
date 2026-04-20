@@ -32,7 +32,7 @@ jobs:
       - name: Build Release APK
         run: ./gradlew assembleRelease --stacktrace
 
-            - name: Sign Release APK
+      - name: Sign Release APK
         uses: r0adkll/sign-android-release@v1
         id: sign_app
         env:
