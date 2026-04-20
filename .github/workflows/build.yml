@@ -44,6 +44,10 @@ jobs:
           keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
 
+          # --- NEW STEP ADDED HERE ---
+      - name: Rename Signed APK
+        run: mv ${{ steps.sign_app.outputs.signedReleaseFile }} app/build/outputs/apk/release/app-release-signed.apk
+
 
 
       - name: Upload Debug APK
@@ -56,5 +60,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: LastWave-Signed-Release-APK
-          path: ${{steps.sign_app.outputs.signedReleaseFile}}
+          path: app/build/outputs/apk/release/app-release-signed.apk
 
