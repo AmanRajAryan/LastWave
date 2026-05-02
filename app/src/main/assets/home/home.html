@@ -1,11 +1,15 @@
 <!-- ════════════════════════════════════════════════════════
-     home.html — Home screen  ·  Material You redesign
-     Styles → home.css   |   Logic → home.js
+     home.html  ·  LastWave Home Screen
+     CSS  → home/home.css
+     Logic→ home/home.js
      ════════════════════════════════════════════════════════ -->
 
-<div class="page-scroll home-screen">
+<!-- .home-screen fills [data-screen="home"] which screen_home()
+     forces to overflow:hidden + flex-column so that #dailyMixList
+     is the ONLY scroll container on this screen. -->
+<div class="home-screen">
 
-  <!-- ── Username entry (shown when no user saved) ──────────── -->
+  <!-- ── No user yet ──────────────────────────────────────── -->
   <div id="homeUsernameSection" class="home-username-card hidden">
     <div class="home-username-label">Last.fm Username</div>
     <div class="home-username-row">
@@ -21,39 +25,32 @@
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════════════════
-       HEADER ROW — username left · live listening timer right
-       ══════════════════════════════════════════════════════════ -->
+  <!-- ── Header row ──────────────────────────────────────── -->
   <div id="homeHeader" class="home-header-row hidden">
     <div class="home-header-user">
       <div class="home-username-pill">
         <span class="home-header-username" id="homeHeaderUsername">—</span>
       </div>
     </div>
-    <div class="home-header-timer" id="homeListenTimer" title="Total listening time">
+    <div class="home-header-timer" id="homeListenTimer">
       <span class="material-symbols-rounded home-timer-icon">headphones</span>
       <span class="home-timer-value" id="homeTimerValue">––:––:––:––</span>
     </div>
   </div>
 
-  <!-- ══════════════════════════════════════════════════════════
-       STATS CARD — scrobbles + tracks / artist / album
-       ══════════════════════════════════════════════════════════ -->
+  <!-- ── Stats card ──────────────────────────────────────── -->
   <div id="userProfileCard" class="home-stats-card hidden">
-
     <div class="home-scrobbles-row">
       <div class="home-scrobbles-balancer" aria-hidden="true"></div>
       <div class="home-scrobbles-center">
         <span class="home-scrobbles-count" id="profileScrobbles">—</span>
         <span class="home-scrobbles-label">Scrobbles</span>
       </div>
-      <button class="home-scrobbles-arrow" onclick="navigateTo('genres')" aria-label="View your genres">
+      <button class="home-scrobbles-arrow" onclick="navigateTo('genres')" aria-label="View genres">
         <span class="material-symbols-rounded">arrow_forward_ios</span>
       </button>
     </div>
-
     <div class="home-stats-divider"></div>
-
     <div class="home-stats-row">
       <div class="home-stat-item">
         <div class="home-stat-label">Tracks</div>
@@ -70,30 +67,25 @@
         <div class="home-stat-value" id="statAlbums">—</div>
       </div>
     </div>
-
   </div>
 
-  <!-- ══════════════════════════════════════════════════════════
-       LIST CARD — sortable scrollable track list
-       ══════════════════════════════════════════════════════════ -->
+  <!-- ── List card ───────────────────────────────────────── -->
+  <!-- .home-mix-card is flex:1 — it fills every remaining pixel.
+       .home-list-wrapper inside it provides the height:100% flex
+       chain required for #dailyMixList to be the only scroller. -->
   <div id="dailyMixCard" class="home-mix-card hidden">
 
+    <!-- Fixed header — never scrolls away -->
     <div class="home-mix-header">
       <span class="home-mix-title">List</span>
-
       <div class="home-sort-wrap" id="homeSortWrap">
-        <button
-          class="home-sort-btn"
-          id="homeSortBtn"
-          onclick="toggleSortMenu()"
-          aria-label="Sort options"
-          aria-haspopup="true"
-        >
+        <button class="home-sort-btn" id="homeSortBtn"
+                onclick="toggleSortMenu()"
+                aria-label="Sort options" aria-haspopup="true">
           <span class="material-symbols-rounded">sort</span>
           <span class="home-sort-label" id="homeSortLabel">Recent</span>
           <span class="material-symbols-rounded home-sort-chevron" id="homeSortChevron">expand_more</span>
         </button>
-
         <div class="home-sort-menu hidden" id="homeSortMenu" role="menu">
           <button class="home-sort-option active" id="sortOptRecent"
                   onclick="setSortMode('recent')" role="menuitem">
@@ -123,31 +115,35 @@
       </div>
     </div>
 
+    <!-- Static divider between header and scroll zone -->
     <div class="home-list-divider"></div>
 
-    <div id="dailyMixList" class="home-mix-list home-mix-scroll">
-      <!-- Populated by home.js -->
+    <!-- .home-list-wrapper: flex:1 height chain so #dailyMixList
+         is the ONLY element that ever scrolls.
+         JS toggles .limited on #dailyMixList for non-Recent tabs:
+           Recent     → flex:1; overflow-y:auto  (fills wrapper, full scroll)
+           Other tabs → height:calc(5*72px); overflow-y:auto  (bounded) -->
+    <div class="home-list-wrapper">
+      <div id="dailyMixList" class="home-mix-list">
+        <!-- Populated by home.js — full dataset, no limit -->
+      </div>
     </div>
 
   </div>
 
-  <!-- Loading skeleton -->
+  <!-- ── Loading skeleton ────────────────────────────────── -->
   <div id="homeSkeleton" class="home-skeleton hidden">
     <div class="skel-card">
       <div class="skel-line skel-short"></div>
       <div class="skel-line skel-tall"></div>
       <div class="skel-row" style="gap:12px">
-        <div class="skel-block"></div>
-        <div class="skel-block"></div>
-        <div class="skel-block"></div>
+        <div class="skel-block"></div><div class="skel-block"></div><div class="skel-block"></div>
       </div>
     </div>
     <div class="skel-card">
       <div class="skel-line skel-medium"></div>
-      <div class="skel-track"></div>
-      <div class="skel-track"></div>
-      <div class="skel-track"></div>
-      <div class="skel-track"></div>
+      <div class="skel-track"></div><div class="skel-track"></div>
+      <div class="skel-track"></div><div class="skel-track"></div>
       <div class="skel-track"></div>
     </div>
   </div>

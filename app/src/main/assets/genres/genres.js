@@ -8,9 +8,6 @@
 // ── Module state ──────────────────────────────────────────────
 let _genresFilterOpen    = false;
 let _genresPeriod        = 'overall';
-let _genresPTRActive     = false;
-let _genresPTRStartY     = 0;
-let _genresPTRThreshold  = 72;
 
 // Genre detail state
 let _gDetailName        = '';
@@ -61,7 +58,6 @@ async function screen_genres() {
     _genresShowError('Enter your username and API key in Settings first.', 'No credentials found');
     return;
   }
-  _initGenresPTR();
   await _genresLoad();
 }
 
@@ -123,61 +119,6 @@ function setGenrePeriod(period) {
   _genresLoad();
 }
 
-// ── Pull-to-refresh ───────────────────────────────────────────
-let _ptrWired = false;
-
-function _initGenresPTR() {
-  if (_ptrWired) return;
-  _ptrWired = true;
-  const scroller = document.querySelector('[data-screen="genres"]');
-  if (!scroller) return;
-  let startY = 0, pulling = false;
-  scroller.addEventListener('touchstart', (e) => {
-    if (scroller.scrollTop > 4) return;
-    startY  = e.touches[0].clientY;
-    pulling = true;
-  }, { passive: true });
-  scroller.addEventListener('touchmove', (e) => {
-    if (!pulling) return;
-    const dy = e.touches[0].clientY - startY;
-    if (dy <= 0) { pulling = false; return; }
-    const indicator = document.getElementById('genresPullIndicator');
-    if (!indicator) return;
-    const progress = Math.min(dy / _genresPTRThreshold, 1);
-    if (dy > 12) {
-      indicator.classList.remove('hidden');
-      indicator.classList.toggle('visible', dy > 32);
-      const icon = indicator.querySelector('.genres-pull-icon');
-      if (icon) icon.style.transform = `rotate(${progress * 180}deg)`;
-    }
-  }, { passive: true });
-  scroller.addEventListener('touchend', (e) => {
-    if (!pulling) return;
-    pulling = false;
-    const dy = (e.changedTouches[0]?.clientY || 0) - startY;
-    const indicator = document.getElementById('genresPullIndicator');
-    if (dy >= _genresPTRThreshold && !_genresPTRActive) {
-      _genresPTRActive = true;
-      indicator?.classList.add('refreshing');
-      const icon = indicator?.querySelector('.genres-pull-icon');
-      if (icon) icon.style.transform = '';
-      _genresLoad().finally(() => {
-        _genresPTRActive = false;
-        if (indicator) {
-          indicator.classList.remove('refreshing', 'visible');
-          setTimeout(() => indicator.classList.add('hidden'), 240);
-        }
-      });
-    } else {
-      if (indicator) {
-        indicator.classList.remove('visible');
-        setTimeout(() => indicator.classList.add('hidden'), 220);
-        const icon = indicator.querySelector('.genres-pull-icon');
-        if (icon) icon.style.transform = '';
-      }
-    }
-  }, { passive: true });
-}
 
 // ── Data fetch ────────────────────────────────────────────────
 async function _genresFetch(period) {

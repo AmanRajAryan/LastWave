@@ -11,31 +11,6 @@
   padding-bottom: calc(var(--nav-height, 76px) + var(--safe-bottom, 0px) + 48px);
 }
 
-/* ── Pull-to-refresh ─────────────────────────────────────────── */
-.genres-pull-indicator {
-  display: flex; justify-content: center; align-items: center;
-  height: 0; overflow: hidden;
-  transition: height 0.22s cubic-bezier(0.4,0,0.2,1);
-  margin-bottom: 0;
-}
-.genres-pull-indicator.visible { height: 52px; margin-bottom: 4px; }
-.genres-pull-spinner {
-  width: 36px; height: 36px; border-radius: 50%;
-  background: var(--md-surface-container-high);
-  display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.28);
-  transition: transform 0.18s ease;
-}
-.genres-pull-icon {
-  font-size: 18px; color: var(--md-primary);
-  font-variation-settings: 'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20;
-  transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
-}
-.genres-pull-indicator.refreshing .genres-pull-icon {
-  animation: genrePullSpin 0.75s linear infinite;
-}
-@keyframes genrePullSpin { to { transform: rotate(360deg); } }
-
 /* ── Header ──────────────────────────────────────────────────── */
 .genres-header {
   display: flex; align-items: flex-start;
