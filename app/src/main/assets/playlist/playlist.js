@@ -42,7 +42,6 @@ function screen_playlist() {
     _plRenderSaved();
   }
   _plJustGenerated = false;
-  _plSetupPullToRefresh();
 }
 
 let _plJustGenerated = false;
@@ -961,56 +960,4 @@ function _plPatchTrackArt(row, url) {
     if (fallback) fallback.style.display = 'none';
   };
   img.src = url;
-}
-
-// ── Pull-to-refresh ───────────────────────────────────────────
-let _plPtr = { startY: 0, active: false, indicator: null };
-
-function _plSetupPullToRefresh() {
-  const scrollEl = document.querySelector('[data-screen="playlist"]');
-  if (!scrollEl || scrollEl._ptrBound) return;
-  scrollEl._ptrBound = true;
-
-  if (!_plPtr.indicator) {
-    const ind = document.createElement('div');
-    ind.style.cssText = [
-      'position:fixed;top:0;left:50%;transform:translateX(-50%) translateY(-48px)',
-      'width:36px;height:36px;border-radius:50%',
-      'background:var(--surface2);border:1px solid var(--border)',
-      'display:flex;align-items:center;justify-content:center',
-      'transition:transform 0.2s ease;z-index:10;pointer-events:none'
-    ].join(';');
-    ind.innerHTML = '<span class="material-symbols-rounded" style="font-size:20px;color:var(--accent);animation:spin 0.8s linear infinite">refresh</span>';
-    document.body.appendChild(ind);
-    _plPtr.indicator = ind;
-  }
-
-  scrollEl.addEventListener('touchstart', (e) => {
-    if (scrollEl.scrollTop === 0) {
-      _plPtr.startY = e.touches[0].clientY;
-      _plPtr.active = true;
-    }
-  }, { passive: true });
-
-  scrollEl.addEventListener('touchmove', (e) => {
-    if (!_plPtr.active) return;
-    const delta = e.touches[0].clientY - _plPtr.startY;
-    if (delta > 0 && _plPtr.indicator) {
-      const pull = Math.min(delta * 0.4, 56);
-      _plPtr.indicator.style.transform = `translateX(-50%) translateY(${pull - 48}px)`;
-    }
-  }, { passive: true });
-
-  scrollEl.addEventListener('touchend', (e) => {
-    if (!_plPtr.active) return;
-    const delta = e.changedTouches[0].clientY - _plPtr.startY;
-    _plPtr.active = false;
-    if (_plPtr.indicator) {
-      _plPtr.indicator.style.transform = 'translateX(-50%) translateY(-48px)';
-    }
-    if (delta >= 70) {
-      _plRenderSaved();
-      showToast('Refreshed');
-    }
-  }, { passive: true });
 }
