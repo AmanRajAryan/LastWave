@@ -56,6 +56,14 @@
 .gen-mode-row.selected {
   background: color-mix(in srgb, var(--md-secondary-container) 40%, transparent);
 }
+/* Hide the divider on the selected row (above it) */
+.gen-mode-row.selected::before {
+  display: none;
+}
+/* Hide the divider on the row immediately after the selected row (below it) */
+.gen-mode-row.selected + .gen-mode-row::before {
+  display: none;
+}
 
 /* Mode icon container — fixed-size tonal chip */
 .gen-mode-icon-wrap {

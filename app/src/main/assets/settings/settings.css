@@ -344,6 +344,61 @@ body.settings-open .topbar-left > svg {
   padding-bottom: 16px !important;
 }
 
+/* ── Appearance: continuous Material 3 settings group ─────────
+ *
+ * .appearance-group  — transparent flex column; no background,
+ *   no border-radius of its own. A CSS filter:drop-shadow wraps
+ *   the combined silhouette of all four rows and draws ONE shared
+ *   elevation shadow for the whole block, exactly as if it were
+ *   a single card surface.
+ *
+ * .appearance-item-card  — carries background:var(--surface) and
+ *   the per-position corner radius. Zero margin/gap so rows are
+ *   flush. No individual box-shadow (the wrapper filter owns it).
+ *
+ * Corner rules
+ *   --first   20px top  / 0   bottom  → cap the group at the top
+ *   --middle  0 everywhere             → interior rows, seamless
+ *   --last    0   top   / 20px bottom  → cap the group at bottom
+ * ─────────────────────────────────────────────────────────── */
+.appearance-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+  /* Single elevation shadow that wraps the whole group silhouette */
+  filter:
+    drop-shadow(0 1px 3px rgba(0, 0, 0, 0.24))
+    drop-shadow(0 2px 8px rgba(0, 0, 0, 0.16));
+}
+
+/* Base row — surface fill, flush edges, no individual chrome */
+.appearance-item-card {
+  background: var(--surface);
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.appearance-item-card .settings-toggle-row {
+  height: 68px;
+  padding: 0 20px;
+}
+
+/* Position-specific corner radii */
+.appearance-item-card--first  { border-radius: var(--radius, 20px) var(--radius, 20px) 0 0; }
+.appearance-item-card--middle { border-radius: 0; }
+.appearance-item-card--last   { border-radius: 0 0 var(--radius, 20px) var(--radius, 20px); }
+
+/* ── Theme palette card ───────────────────────────────────────
+ * Sits under its own "Theme" section-title.
+ * Keeps default .card padding (20px).
+ * ─────────────────────────────────────────────────────────── */
+.settings-theme-card {
+  padding: 20px;
+}
+
 /* ══════════════════════════════════════════════════════════
    NAVIGATION OVERRIDES — active when settings screen is open
    ══════════════════════════════════════════════════════════ */
