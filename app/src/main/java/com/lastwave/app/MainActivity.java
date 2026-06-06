@@ -36,6 +36,9 @@ import java.nio.charset.StandardCharsets;
 // API 27+ only — guarded by Build.VERSION check at runtime
 import android.app.WallpaperColors;
 
+// Android 12+ SplashScreen API — guarded by Build.VERSION check at runtime
+import androidx.core.splashscreen.SplashScreen;
+
 /**
  * MainActivity — hosts the WebView that runs the LastWave web app.
  *
@@ -75,6 +78,15 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // ── Dismiss native Android 12+ splash immediately ──────────────────────
+        // (if running on Android 12+, this will dismiss the native SplashScreen
+        // that was shown by the theme. On older Android, this is a no-op.)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            SplashScreen.installSplashScreen(this).setOnExitAnimationListener(splashScreenView -> {
+                splashScreenView.remove();
+            });
+        }
+
         super.onCreate(savedInstanceState);
 
         // ── Edge-to-edge: draw behind status bar and navigation bar ──────────
@@ -159,203 +171,94 @@ public class MainActivity extends AppCompatActivity {
             @Override
             @SuppressWarnings("deprecation")
             public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
-                return assetLoader.shouldInterceptRequest(Uri.parse(url));
-            }
-
-            @Override
-            public void onPageFinished(WebView view, String url) {
-                // Deliver any deep-link token that arrived before the page finished loading
-                deliverPendingDeepLink();
-            }
-
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                String url = request.getUrl().toString();
-                if (url.startsWith("https://") || url.startsWith("http://")) {
-                    if (!url.startsWith("https://appassets.androidplatform.net/")) {
-                        openInBrowser(url);
-                        return true;
-                    }
-                }
-                return false;
+                return assetLoader.shouldInterceptRequest(android.net.Uri.parse(url));
             }
         });
 
-        webView.addJavascriptInterface(new AppBridge(), "AndroidBridge");
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
 
-        // Back button: delegate to the JS navigation stack first.
-        // _lwHandleBack() returns true when JS handled it (screen pop),
-        // or false when the stack is empty and the app should exit.
+        // ── Request runtime permissions ───────────────────────────────────────
+        // On Android 13+, WRITE_EXTERNAL_STORAGE is not available; the app uses
+        // MediaStore (API 29+) or the legacy paths (older devices). WRITE is only
+        // requested on API < 29 for backwards compat.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},
+                    PERMISSION_REQUEST);
+        }
+
+        // ── Back button handling ──────────────────────────────────────────────
+        // Instead of calling WebView.goBack(), call JS window._lwHandleBack()
+        // so that screens can intercept the back gesture (e.g., collapse panels).
+        // The JS function decides whether to go back or take custom action.
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
-                // evaluateJavascript JSON-encodes its return value.
-                // Returning a JS boolean (not a string) means the callback
-                // receives exactly "true" or "false" — no extra quotes.
-                // Using String() would wrap it in a JS string, giving
-                // "\"true\"" — breaking the equality check below.
-                webView.evaluateJavascript(
-                    "typeof window._lwHandleBack === 'function' ? !!window._lwHandleBack() : false",
-                    result -> {
-                        // result is the JSON-encoded JS boolean: "true" or "false"
-                        if (!"true".equals(result)) {
-                            // JS stack is empty — let Android exit normally
-                            setEnabled(false);
-                            getOnBackPressedDispatcher().onBackPressed();
-                        }
-                    }
-                );
+                webView.evaluateJavascript("if(typeof window._lwHandleBack==='function') window._lwHandleBack();", null);
             }
         });
 
-        requestPermissionsIfNeeded();
-
-        // Handle deep link that may have launched the app cold (not via onNewIntent)
-        handleIntent(getIntent());
+        // ── Setup JS Interface (Android <-> WebView bridge) ──────────────────
+        webView.addJavascriptInterface(new JSBridge(), "AndroidBridge");
     }
 
-    // ── Deep link: app already running (singleTop) ────────────────────────────
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        setIntent(intent);
-        handleIntent(intent);
-    }
-
-    /**
-     * Holds a token that arrived before the page finished loading.
-     * Delivered to JS in onPageFinished().
-     */
-    private String pendingDeepLinkToken = null;
-
-    private void handleIntent(Intent intent) {
-        if (intent == null) return;
+        // ── Handle deep-link callback from Last.fm OAuth ──────────────────────
+        // When Last.fm redirects to lastwave://auth?token=TOKEN, this is called.
         Uri data = intent.getData();
-        if (data == null) return;
-
-        // Matches  lastwave://auth?token=TOKEN
-        if ("lastwave".equalsIgnoreCase(data.getScheme())
-                && "auth".equalsIgnoreCase(data.getHost())) {
+        if (data != null && "lastwave".equals(data.getScheme()) && "auth".equals(data.getHost())) {
             String token = data.getQueryParameter("token");
-            if (token == null || token.isEmpty()) return;
-
-            // Try to deliver immediately; if the page isn't ready yet, buffer it.
-            if (!deliverDeepLinkToken(token)) {
-                pendingDeepLinkToken = token;
+            if (token != null && !token.isEmpty()) {
+                webView.evaluateJavascript(
+                    "if(typeof window._lfmDeepLink==='function') window._lfmDeepLink('" + token.replace("'", "\\'") + "');",
+                    null);
             }
         }
     }
 
-    /**
-     * Calls window._lfmDeepLink(token) in the WebView.
-     * @return true if the call was dispatched, false if the WebView wasn't ready.
-     */
-    private boolean deliverDeepLinkToken(String token) {
-        if (webView == null) return false;
-        // Escape the token (alphanumeric only from Last.fm, but be safe)
-        final String safeToken = token.replaceAll("[^a-zA-Z0-9_\\-]", "");
-        final String js = "if(typeof window._lfmDeepLink==='function'){window._lfmDeepLink('" + safeToken + "');}";
-        webView.post(() -> webView.evaluateJavascript(js, null));
-        return true;
-    }
+    // ──────────────────────────────────────────────────────────────────────────
+    //  JavaScript Interface (AndroidBridge)
+    // ──────────────────────────────────────────────────────────────────────────
+    private class JSBridge {
 
-    /** Called from onPageFinished — flushes any buffered deep-link token. */
-    private void deliverPendingDeepLink() {
-        if (pendingDeepLinkToken != null) {
-            deliverDeepLinkToken(pendingDeepLinkToken);
-            pendingDeepLinkToken = null;
-        }
-    }
+        // ── Permissions ───────────────────────────────────────────────────────
 
-    // ── Shared helpers ────────────────────────────────────────────────────────
-    private void openInBrowser(String url) {
-        try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            startActivity(intent);
-        } catch (Exception e) {
-            Toast.makeText(this, "Cannot open URL", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private static String colorToHex(int colorInt) {
-        return String.format("#%06X", (0xFFFFFF & colorInt));
-    }
-
-    private void requestPermissionsIfNeeded() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, PERMISSION_REQUEST);
+        /**
+         * Checks if WRITE_EXTERNAL_STORAGE permission has been granted.
+         * Used by screens to know whether to show "Save" actions.
+         *
+         * JS call: AndroidBridge.hasWritePermission()
+         */
+        @JavascriptInterface
+        public boolean hasWritePermission() {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                return true; // API 29+ uses MediaStore, not filesystem permissions
             }
+            return ContextCompat.checkSelfPermission(MainActivity.this,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
         }
-    }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    //  Android ↔ JavaScript Bridge
-    // ══════════════════════════════════════════════════════════════════════════
-    private class AppBridge {
+        // ── Session key (Last.fm) ──────────────────────────────────────────────
 
         /**
-         * Returns current system bar insets as JSON so JS can request them
-         * on page load in case the listener fired before the page was ready.
-         * Returns {"top":N,"bottom":N} in dp (CSS pixels).
+         * Saves the Last.fm session key to persistent storage (SharedPreferences).
+         * Called after user completes OAuth auth flow.
          *
-         * JS call: AndroidBridge.getSystemInsets()
+         * JS call: AndroidBridge.saveSessionKey(sessionKey)
          */
         @JavascriptInterface
-        public String getSystemInsets() {
-            androidx.core.view.WindowInsetsCompat insets =
-                androidx.core.view.ViewCompat.getRootWindowInsets(webView);
-            if (insets == null) return "{\"top\":0,\"bottom\":0}";
-            float density = getResources().getDisplayMetrics().density;
-            int top    = Math.round(insets.getInsets(WindowInsetsCompat.Type.systemBars()).top    / density);
-            int bottom = Math.round(insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom / density);
-            return "{\"top\":" + top + ",\"bottom\":" + bottom + "}";
+        public void saveSessionKey(String sessionKey) {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            prefs.edit().putString(PREF_SESSION_KEY, sessionKey).apply();
         }
 
-        // ── Auth: open Last.fm authorization page ────────────────────────────
         /**
-         * Opens the Last.fm auth URL in Chrome Custom Tabs (preferred) or the
-         * system browser. Never uses the in-app WebView so the user's real
-         * browser cookies / saved password are available.
-         *
-         * JS call: AndroidBridge.openAuthBrowser(url)
-         */
-        @JavascriptInterface
-        public void openAuthBrowser(final String url) {
-            runOnUiThread(() -> {
-                try {
-                    // Attempt Chrome Custom Tabs first
-                    CustomTabColorSchemeParams darkParams = new CustomTabColorSchemeParams.Builder()
-                            .setToolbarColor(Color.parseColor("#0F0F0F"))
-                            .build();
-
-                    CustomTabsIntent customTabsIntent = new CustomTabsIntent.Builder()
-                            .setColorSchemeParams(CustomTabsIntent.COLOR_SCHEME_DARK, darkParams)
-                            .setShowTitle(true)
-                            .build();
-                    customTabsIntent.launchUrl(MainActivity.this, Uri.parse(url));
-                } catch (Exception e) {
-                    // Fallback: plain system browser intent
-                    try {
-                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                        startActivity(intent);
-                    } catch (Exception e2) {
-                        runOnUiThread(() -> Toast.makeText(MainActivity.this,
-                                "Could not open browser", Toast.LENGTH_LONG).show());
-                    }
-                }
-            });
-        }
-
-        // ── Auth: session key persistence ─────────────────────────────────────
-
-        /**
-         * Returns the saved Last.fm session key from SharedPreferences.
-         * Returns "" if none is stored.
+         * Retrieves the saved Last.fm session key from SharedPreferences.
+         * Called during app init to restore auth state.
          *
          * JS call: AndroidBridge.getSavedSessionKey()
          */
@@ -366,37 +269,90 @@ public class MainActivity extends AppCompatActivity {
         }
 
         /**
-         * Persists the Last.fm session key to SharedPreferences.
+         * Clears the saved session key when user signs out.
          *
-         * JS call: AndroidBridge.saveSessionKey(key)
+         * JS call: AndroidBridge.clearSessionKey()
          */
         @JavascriptInterface
-        public void saveSessionKey(String key) {
-            if (key == null || key.trim().isEmpty()) return;
-            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                    .edit()
-                    .putString(PREF_SESSION_KEY, key.trim())
-                    .apply();
+        public void clearSessionKey() {
+            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+            prefs.edit().remove(PREF_SESSION_KEY).apply();
         }
+
+        // ── OAuth browser launcher ─────────────────────────────────────────────
 
         /**
-         * Clears the stored session key (sign-out).
+         * Opens the Last.fm OAuth authorization URL in Chrome Custom Tabs.
+         * (Fallback to system browser on older devices without Custom Tabs.)
          *
-         * JS call: AndroidBridge.clearSession()
+         * URL format: https://www.last.fm/api/auth/?api_key=...&token=...&cb=lastwave://auth
+         *
+         * When user approves, Last.fm redirects to lastwave://auth?token=TOKEN.
+         * Android's intent routing catches this, fires onNewIntent(),
+         * which calls JS window._lfmDeepLink(token).
+         *
+         * JS call: AndroidBridge.openAuthBrowser(url)
          */
         @JavascriptInterface
-        public void clearSession() {
-            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                    .edit()
-                    .remove(PREF_SESSION_KEY)
-                    .apply();
+        public void openAuthBrowser(final String url) {
+            runOnUiThread(() -> {
+                try {
+                    CustomTabColorSchemeParams params = new CustomTabColorSchemeParams.Builder()
+                            .setToolbarColor(0xFF0F0F0F)
+                            .build();
+
+                    CustomTabsIntent intent = new CustomTabsIntent.Builder()
+                            .setDefaultColorSchemeParams(params)
+                            .setShowTitle(true)
+                            .build();
+
+                    intent.launchUrl(MainActivity.this, android.net.Uri.parse(url));
+                } catch (Exception e) {
+                    openInBrowser(url); // Fallback to system browser
+                }
+            });
         }
 
-        // ── Wallpaper Colors ──────────────────────────────────────────────────
+        // ── System insets (safe area) ──────────────────────────────────────────
+
+        /**
+         * Returns system insets (top and bottom) for the device in device-independent pixels.
+         * Used to position the top bar and bottom navigation outside of notches and gesture areas.
+         *
+         * Result: "{\"top\": <dp>, \"bottom\": <dp>}"
+         *
+         * JS call: AndroidBridge.getSystemInsets()
+         */
         @JavascriptInterface
-        public String getWallpaperColors() {
+        public String getSystemInsets() {
+            WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(webView);
+            if (insets == null) return "{\"top\": 0, \"bottom\": 0}";
+
+            float density = getResources().getDisplayMetrics().density;
+            int top    = Math.round(insets.getInsets(WindowInsetsCompat.Type.systemBars()).top    / density);
+            int bottom = Math.round(insets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom / density);
+            return "{\"top\": " + top + ", \"bottom\": " + bottom + "}";
+        }
+
+        // ── Material You colors ────────────────────────────────────────────────
+
+        /**
+         * Returns the system Material You accent colors (primary, secondary, tertiary).
+         * API 31+: uses WallpaperColors extracted from the wallpaper by the OS.
+         * API 12+: uses the system-enforced Material You colors.
+         * Older:   returns empty string (dynamic color unavailable).
+         *
+         * Result: "{\"primary\": \"#...\", \"secondary\": \"#...\", \"tertiary\": \"#...\"}"
+         *
+         * JS call: AndroidBridge.getMaterialYouColors()
+         */
+        @JavascriptInterface
+        public String getMaterialYouColors() {
             try {
-                // Android 12+ (API 31): read the real Monet / Dynamic Color tonal
+                // Android 12+ (API 31): uses system resource slots that Monet populates
+                // directly from wallpaper. These are the SAME values that DynamicColor
+                // / dynamicDarkColorScheme() uses — NOT the raw dominant wallpaper hues
+                // from WallpaperManager which are pre-Monet colors.
                 // palette directly from system resource slots. These are exactly what
                 // DynamicColors / dynamicDarkColorScheme() uses — NOT the raw dominant
                 // wallpaper hues from WallpaperManager which are pre-Monet colors.
@@ -555,5 +511,17 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "Error sharing: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
         });
+    }
+
+    private void openInBrowser(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not open browser: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private String colorToHex(int color) {
+        return String.format("#%06X", (0xFFFFFF & color));
     }
 }
