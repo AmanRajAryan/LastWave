@@ -355,6 +355,10 @@
 .home-track-nowplaying {
   background: color-mix(in srgb, var(--md-primary-container) 28%, transparent);
   border-radius: 16px; margin: 0 4px 3px;
+  /* width:auto overrides the width:100% inherited from .home-track-item — with
+     100% the 4px side margins pushed the card 4px past the container's right edge.
+     In this stretch flex column, auto fills the container minus the margins. */
+  width: auto;
   display: flex; align-items: center; justify-content: space-between; flex-wrap: nowrap;
   flex: none;
   height: 64px; min-height: 64px; max-height: 64px;

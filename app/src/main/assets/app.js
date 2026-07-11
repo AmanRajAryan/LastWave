@@ -950,36 +950,13 @@ window.addEventListener('load', () => {
   // Register global deep-link callback (called by Android onNewIntent)
   window._lfmDeepLink = _handleDeepLinkToken;
 
-  // ── Step 2: Dismiss splash after a FIXED maximum of 1.5 s ─────────────────
-  // We never await any API call here. The home screen loads its data
-  // independently and shows skeleton/cached state while fetching.
-  const SPLASH_MAX_MS = 1500;
-
-  const _dismissSplash = (() => {
-    let dismissed = false;
-    return () => {
-      if (dismissed) return;
-      dismissed = true;
-      const splash = document.getElementById('splash');
-      const app    = document.getElementById('app');
-      if (splash) splash.classList.add('fade-out');
-      setTimeout(() => {
-        if (splash) splash.classList.add('hidden');
-        if (app)    app.classList.remove('hidden');
-      }, 400);
-    };
-  })();
-
-  // Hard failsafe: ALWAYS dismiss within SPLASH_MAX_MS, no matter what
-  setTimeout(_dismissSplash, SPLASH_MAX_MS);
-
-  // ── Step 3: Navigate to home (fire-and-forget — never blocks splash) ──────
-  // navigateTo itself is synchronous for DOM injection; API fetching inside
-  // screen_home happens asynchronously and never delays the splash.
+  // ── Step 2: Navigate to home ──────────────────────────────────────────────
+  // The app shell is visible immediately; the home screen injects its DOM
+  // synchronously and fetches data asynchronously (showing skeleton/cached
+  // state while it loads). A screen crash must not break init.
   Promise.resolve()
     .then(() => navigateTo('home'))
-    .catch(() => {}) // screen crash must not prevent splash from hiding
-    .finally(_dismissSplash); // dismiss as soon as nav resolves (may be < 1.5 s)
+    .catch(() => {});
 
   // ── Step 4: Load user profile silently in the background ─────────────────
   // Fires after a short delay so it does not race with home screen init.

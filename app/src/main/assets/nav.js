@@ -89,7 +89,7 @@ async function navigateTo(page, opts) {
       htmlText = await res.text();
     } catch (e) {
       // If the HTML can't load, insert a minimal error placeholder so the
-      // app shell still appears rather than staying on the splash forever.
+      // app shell still shows a usable screen rather than an empty container.
       console.error(`[nav] Failed to load ${page}.html:`, e.message);
       htmlText = `<div style="padding:40px 24px;text-align:center;color:var(--text2,#888)">
         <p style="font-size:16px;font-weight:600">Could not load this screen</p>
@@ -169,7 +169,7 @@ async function navigateTo(page, opts) {
   state.currentPage = page;
   
   // 7. Call screen init — fire-and-forget so a crashing/slow screen init
-  //    never prevents navigateTo from resolving and never blocks the splash.
+  //    never prevents navigateTo from resolving.
   if (typeof window['screen_' + page] === 'function') {
     try {
       const result = window['screen_' + page]();

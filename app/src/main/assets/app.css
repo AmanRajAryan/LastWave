@@ -128,28 +128,6 @@ input, textarea { user-select: text; }
 .full-width { width: 100%; }
 .link { color: var(--accent); cursor: pointer; text-decoration: underline; }
 
-/* ── Splash ───────────────────────────────────────────────── */
-.splash {
-  position: fixed; inset: 0;
-  background: var(--bg);
-  display: flex; align-items: center; justify-content: center;
-  z-index: 9999;
-  transition: opacity 0.4s ease;
-}
-.splash.fade-out { opacity: 0; pointer-events: none; }
-.splash-inner { text-align: center; }
-.splash-logo { animation: pulse 1.5s ease-in-out infinite; margin-bottom: 20px; }
-.splash-title { font-size: 32px; font-weight: 700; letter-spacing: -0.8px; }
-.splash-sub { color: var(--text2); margin-top: 6px; font-size: 14px; font-weight: 400; letter-spacing: 0.1px; }
-.splash-loader { display: flex; gap: 8px; justify-content: center; margin-top: 36px; }
-.splash-loader div {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--accent);
-  animation: bounce 1.2s infinite;
-}
-.splash-loader div:nth-child(2) { animation-delay: 0.2s; }
-.splash-loader div:nth-child(3) { animation-delay: 0.4s; }
-
 /* ── App Shell ────────────────────────────────────────────── */
 .app {
   display: flex; flex-direction: column;
