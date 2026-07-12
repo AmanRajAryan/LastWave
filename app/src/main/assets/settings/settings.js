@@ -267,6 +267,125 @@ function clearAllData() {
 }
 
 // ═════════════════════════════════════════════════════════════
+//  BACKUP / RESTORE
+//
+//  Backup file is a JSON snapshot of the ENTIRE localStorage —
+//  seen tracks, generated playlists, playlist history, saved
+//  preferences and settings all live there, so a full snapshot
+//  is the only way to guarantee nothing is missed.
+//
+//  File shape:
+//  {
+//    type: "lastwave-backup", schemaVersion: 1,
+//    createdAt: "<ISO date>", appVersion: "1.0.0",
+//    data: { "<localStorage key>": "<localStorage value>", ... }
+//  }
+// ═════════════════════════════════════════════════════════════
+
+const LW_BACKUP_TYPE           = 'lastwave-backup';
+const LW_BACKUP_SCHEMA_VERSION = 1;
+
+function backupData() {
+  try {
+    const snapshot = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      snapshot[key] = localStorage.getItem(key);
+    }
+
+    const backup = {
+      type: LW_BACKUP_TYPE,
+      schemaVersion: LW_BACKUP_SCHEMA_VERSION,
+      createdAt: new Date().toISOString(),
+      appVersion: '1.0.0',
+      data: snapshot
+    };
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `lastwave_backup_${stamp}.json`;
+
+    Platform.saveFile(filename, JSON.stringify(backup, null, 2), 'application/json');
+  } catch (e) {
+    showToast('Backup failed: ' + e.message, 'error');
+  }
+}
+
+function triggerRestoreData() {
+  const input = document.getElementById('restoreFileInput');
+  if (input) {
+    input.value = ''; // allow re-selecting the same file twice in a row
+    input.click();
+  }
+}
+
+function handleRestoreFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onerror = () => showToast('Could not read that file', 'error');
+  reader.onload = () => {
+    let parsed;
+    try {
+      parsed = JSON.parse(reader.result);
+    } catch (e) {
+      showToast('That file is not a valid backup (bad JSON)', 'error');
+      return;
+    }
+
+    // ── Validate shape before ever touching localStorage ──────────
+    if (!parsed || typeof parsed !== 'object'
+        || parsed.type !== LW_BACKUP_TYPE
+        || !parsed.data || typeof parsed.data !== 'object') {
+      showToast('This file is not a recognised LastWave backup', 'error');
+      return;
+    }
+    if (typeof parsed.schemaVersion === 'number' && parsed.schemaVersion > LW_BACKUP_SCHEMA_VERSION) {
+      showToast('This backup was made with a newer version of LastWave', 'error');
+      return;
+    }
+
+    const trackCount = Object.keys(parsed.data).length;
+    showModal(
+      'Restore Data',
+      `This will replace all current saved songs, playlists, preferences and settings with the contents of this backup (${trackCount} item${trackCount === 1 ? '' : 's'}). This cannot be undone. Continue?`,
+      () => _applyRestore(parsed.data)
+    );
+  };
+  reader.readAsText(file);
+}
+
+function _applyRestore(restoredData) {
+  // Snapshot current data first so a mid-restore failure can be rolled
+  // back — the user is never left with a half-applied or empty state.
+  const previous = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      previous[key] = localStorage.getItem(key);
+    }
+
+    localStorage.clear();
+    Object.keys(restoredData).forEach(key => {
+      const value = restoredData[key];
+      localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value));
+    });
+
+    showToast('Backup restored ✓ Reloading…', 'success');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) {
+    // Roll back to the pre-restore snapshot so nothing is lost.
+    try {
+      localStorage.clear();
+      Object.keys(previous).forEach(key => {
+        localStorage.setItem(key, previous[key]);
+      });
+    } catch (rollbackError) { /* best effort */ }
+    showToast('Restore failed — your previous data was kept', 'error');
+  }
+}
+
+// ═════════════════════════════════════════════════════════════
 //  COLOR WHEEL DIALOG  —  COMPLETE REBUILD
 //
 //  Architecture overview:

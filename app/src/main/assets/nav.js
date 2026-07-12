@@ -6,6 +6,10 @@
 
 'use strict';
 
+// Bump this whenever CSS/HTML assets change, so the WebView's disk cache
+// (which persists across app reinstalls) never serves a stale stylesheet.
+const BUILD_VERSION = '2';
+
 const PAGE_TITLES = {
   home:      'LastWave',
   generator: 'Create',
@@ -72,7 +76,7 @@ async function navigateTo(page, opts) {
       await new Promise(resolve => {
         const link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = `${page}/${page}.css`;
+        link.href = `${page}/${page}.css?v=${BUILD_VERSION}`;
         link.dataset.screen = page;
         link.onload  = resolve;
         link.onerror = resolve; // CSS failure is non-fatal

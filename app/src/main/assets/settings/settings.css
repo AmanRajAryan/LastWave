@@ -41,6 +41,16 @@
   line-height: 1.5;
 }
 
+/* Backup/Restore hints only — kept to one line so the Data card reads
+   cleanly. Scoped to its own class so the other hints in the same card
+   (Clear Discovery History / Clear All Saved Data) are untouched. */
+.settings-hint-oneline {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Inside a fixed-height toggle row, labels AND hints stay on one line */
 .settings-toggle-row .settings-toggle-label,
 .settings-toggle-row .settings-hint {
@@ -589,6 +599,17 @@ body.settings-open #headerUserBtn {
 /* ── GitHub link — no underline ──────────────────────────────── */
 .info-link {
   text-decoration: none !important;
+}
+/* Octocat icon + wordmark — same right-aligned slot the plain text used,
+   same font-weight/color inherited from .info-row span:last-child */
+.gh-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.gh-icon {
+  flex-shrink: 0;
+  color: var(--text);
 }
 
 /* ── Logged-in authenticated state card ──────────────────────── */
