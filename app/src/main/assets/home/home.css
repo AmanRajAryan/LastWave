@@ -303,12 +303,6 @@
   transform: scale(0.985);
   transition: transform 0.1s ease, background 0.1s ease;
 }
-.home-track-item + .home-track-item::before {
-  content: '';
-  position: absolute; left: 72px; right: 0; top: 0;
-  height: 1px;
-  background: color-mix(in srgb, var(--md-outline-variant) 35%, transparent);
-}
 .home-track-item::after {
   content: ''; position: absolute; inset: 0;
   background: var(--md-on-surface); opacity: 0;

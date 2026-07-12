@@ -75,6 +75,10 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS_NAME       = "lastwave_prefs";
     private static final String PREF_SESSION_KEY = "lw_session_key";
 
+    // ── File chooser (used by the Settings → Restore Data <input type="file">) ──
+    private ValueCallback<Uri[]> filePathCallback;
+    private static final int FILE_CHOOSER_REQUEST_CODE = 51426;
+
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -151,7 +155,35 @@ public class MainActivity extends AppCompatActivity {
         // android:usesCleartextTraffic="false" already blocks HTTP at the OS
         // level, and the setting contradicts the manifest's intent.
 
-        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebChromeClient(new WebChromeClient() {
+            // Required for the Settings screen's Restore Data feature: without
+            // this override, <input type="file"> silently does nothing in a
+            // WebView — tapping "Restore Data" would never open a picker.
+            @Override
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback,
+                                              FileChooserParams fileChooserParams) {
+                if (filePathCallback != null) {
+                    filePathCallback.onReceiveValue(null);
+                }
+                filePathCallback = callback;
+
+                Intent intent;
+                try {
+                    intent = fileChooserParams.createIntent();
+                } catch (Exception e) {
+                    filePathCallback = null;
+                    return false;
+                }
+
+                try {
+                    startActivityForResult(intent, FILE_CHOOSER_REQUEST_CODE);
+                } catch (Exception e) {
+                    filePathCallback = null;
+                    return false;
+                }
+                return true;
+            }
+        });
         // Disable remote debugging in all builds — never expose DevTools to the network
         WebView.setWebContentsDebuggingEnabled(false);
 
@@ -202,6 +234,30 @@ public class MainActivity extends AppCompatActivity {
 
         // ── Setup JS Interface (Android <-> WebView bridge) ──────────────────
         webView.addJavascriptInterface(new JSBridge(), "AndroidBridge");
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        // Completes the Restore Data file picker started in onShowFileChooser().
+        if (requestCode == FILE_CHOOSER_REQUEST_CODE) {
+            if (filePathCallback == null) return;
+            Uri[] results = null;
+            if (resultCode == RESULT_OK && data != null) {
+                String dataString = data.getDataString();
+                if (dataString != null) {
+                    results = new Uri[]{ Uri.parse(dataString) };
+                } else if (data.getClipData() != null) {
+                    int count = data.getClipData().getItemCount();
+                    results = new Uri[count];
+                    for (int i = 0; i < count; i++) {
+                        results[i] = data.getClipData().getItemAt(i).getUri();
+                    }
+                }
+            }
+            filePathCallback.onReceiveValue(results);
+            filePathCallback = null;
+        }
     }
 
     @Override
