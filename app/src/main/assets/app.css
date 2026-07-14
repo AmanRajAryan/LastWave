@@ -612,6 +612,16 @@ input, textarea { user-select: text; }
   color: var(--md-on-surface-variant);
 }
 
+/* ── Discover button in topbar (left of Search) ───────────── */
+.topbar-discover-btn {
+  margin-right: 2px;
+}
+.topbar-discover-btn .material-symbols-rounded {
+  font-size: 23px;
+  font-variation-settings: 'FILL' 0;
+  color: var(--md-on-surface-variant);
+}
+
 /* ── Track dropdown (shared global, rendered by home.js) ─── */
 /* (Styles also live in home.css for colocation, but the
     dropdown is appended to <body> so app.css covers it too.) */
