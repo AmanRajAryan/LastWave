@@ -1,0 +1,76 @@
+<!-- ════════════════════════════════════════════════════════
+     discover.html — Discover screen (music discovery feed)
+     Styles → discover.css   |   Logic → discover.js
+     Opened from the Home topbar (icon left of Search).
+     ════════════════════════════════════════════════════════ -->
+
+<div class="discover-screen page-scroll" id="discoverPageRoot">
+
+  <!-- ── Header ──────────────────────────────────────────────── -->
+  <div class="discover-header">
+    <div class="discover-header-text">
+      <div class="discover-title">Discover</div>
+      <div class="discover-sub">Fresh tracks, powered by your Last.fm taste</div>
+    </div>
+  </div>
+
+  <!-- ── Loading skeleton (first load only) ───────────────────── -->
+  <div id="discoverSkeleton" class="discover-skeleton hidden">
+    <div class="disc-skel-card">
+      <div class="disc-skel-art"></div>
+      <div class="disc-skel-lines">
+        <div class="disc-skel-line disc-skel-title"></div>
+        <div class="disc-skel-line disc-skel-artist"></div>
+        <div class="disc-skel-line disc-skel-reason"></div>
+      </div>
+    </div>
+    <div class="disc-skel-card">
+      <div class="disc-skel-art"></div>
+      <div class="disc-skel-lines">
+        <div class="disc-skel-line disc-skel-title"></div>
+        <div class="disc-skel-line disc-skel-artist"></div>
+        <div class="disc-skel-line disc-skel-reason"></div>
+      </div>
+    </div>
+    <div class="disc-skel-card">
+      <div class="disc-skel-art"></div>
+      <div class="disc-skel-lines">
+        <div class="disc-skel-line disc-skel-title"></div>
+        <div class="disc-skel-line disc-skel-artist"></div>
+        <div class="disc-skel-line disc-skel-reason"></div>
+      </div>
+    </div>
+    <div class="disc-skel-card">
+      <div class="disc-skel-art"></div>
+      <div class="disc-skel-lines">
+        <div class="disc-skel-line disc-skel-title"></div>
+        <div class="disc-skel-line disc-skel-artist"></div>
+        <div class="disc-skel-line disc-skel-reason"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Error state ───────────────────────────────────────────── -->
+  <div id="discoverError" class="discover-error hidden">
+    <span class="material-symbols-rounded discover-error-icon">cloud_off</span>
+    <div class="discover-error-msg" id="discoverErrorTitle">Something went wrong</div>
+    <div class="discover-error-sub" id="discoverErrorMsg">Please try again.</div>
+    <button class="discover-retry-btn ripple-item" onclick="_discRetry()">
+      <span class="material-symbols-rounded">refresh</span>
+      Retry
+    </button>
+  </div>
+
+  <!-- ── Empty state ───────────────────────────────────────────── -->
+  <div id="discoverEmpty" class="discover-empty hidden">
+    <span class="material-symbols-rounded discover-empty-icon">auto_awesome</span>
+    <div class="discover-empty-msg">No recommendations yet</div>
+    <div class="discover-empty-sub">Listen to more music on Last.fm, then pull to refresh!</div>
+  </div>
+
+  <!-- ── Feed ──────────────────────────────────────────────────── -->
+  <div id="discoverList" class="discover-list hidden" role="list">
+    <!-- Cards populated + infinitely appended by discover.js -->
+  </div>
+
+</div>

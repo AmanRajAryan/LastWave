@@ -8,7 +8,7 @@
 
 // Bump this whenever CSS/HTML assets change, so the WebView's disk cache
 // (which persists across app reinstalls) never serves a stale stylesheet.
-const BUILD_VERSION = '2';
+const BUILD_VERSION = '3';
 
 const PAGE_TITLES = {
   home:      'LastWave',
@@ -17,6 +17,7 @@ const PAGE_TITLES = {
   settings:  'Settings',
   genres:    'Your Genres',
   search:    'Search',
+  discover:  'Discover',
 };
 
 /*
@@ -32,6 +33,7 @@ const PAGE_TRANSITIONS = {
   settings:  'screen-in',
   genres:    'screen-slide-right',
   search:    'screen-slide-right',
+  discover:  'screen-slide-right',
 };
 
 // 'results' is an internal alias — always loads the playlist screen
