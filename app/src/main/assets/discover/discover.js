@@ -4,12 +4,12 @@
    existing playlist-generation recommendation engine in app.js.
 
    Reuses (does not duplicate) shared globals from app.js:
-     lfmCall, normaliseTracks, shuffleArray, deduplicateTracks,
-     _filterFresh, _markAsSeen, _buildUserTasteProfile,
-     _hydrateProfile, _scoreTrack, _itunesFetchArtwork, _isRealImg,
-     _preloadImages, showToast, showModal, esc, escAttr,
-     openTrackOnYouTube, openTrackOnLastFm, startMixFromTrack,
-     _resolveTrackGenre, _refreshTrackArtwork
+     lfmCall, normaliseTracks, shuffleArray, _filterFresh,
+     _markAsSeen, _buildUserTasteProfile, _hydrateProfile,
+     _scoreTrack, _itunesFetchArtwork, _isRealImg, _preloadImages,
+     showToast, showModal, esc, escAttr, openTrackOnYouTube,
+     openTrackOnLastFm, startMixFromTrack, _resolveTrackGenre,
+     _refreshTrackArtwork
    and from genres.js:
      _doExploreGenrePlaylist
 
@@ -18,36 +18,50 @@
      weight 4 — similar to Loved Tracks (strongest explicit signal)
      weight 3 — similar to all-time top tracks (long-term taste)
      weight 2 — top tracks from similar artists (trusted discovery)
-     weight 1 — genre / tag discovery
-     weight 1 — global Last.fm popularity (chart.gettoptracks)
+     weight 1 — genre / tag discovery        (wide, near-unlimited pages)
+     weight 1 — global Last.fm popularity    (wide, near-unlimited pages)
 
    Only TRACKS are ever recommended (no artists/albums/tags).
    Every candidate is tagged with a short "why" reason and is
    excluded if the user already knows it (top/recent tracks) or
    has already been shown this session / within the last 21 days
    (via app.js's existing _filterFresh / _markAsSeen cache).
+
+   ENDLESSNESS: the tag + global-chart buckets draw from a very
+   large random page range, so they alone can supply fresh,
+   never-before-seen tracks indefinitely. If a refill still comes
+   back empty (rare — e.g. a transient API hiccup), a guaranteed-
+   content fallback bucket kicks in so the feed never dead-ends,
+   and the per-artist diversity cap gradually relaxes if it's
+   ever the bottleneck, so growth never permanently stalls.
    ════════════════════════════════════════════════════════════ */
 
 'use strict';
 
 // ── Module state ────────────────────────────────────────────────
-let _discInitialized  = false;   // true once the first load has completed
-let _discRefilling    = false;   // guards re-entrant pool refills
-let _discLoadingMore  = false;   // guards re-entrant scroll-triggered loads
-let _discProfile      = null;    // hydrated UserTasteProfile (Sets)
-let _discProfileRaw   = null;    // raw profile (proper-case seed arrays)
-let _discSeedPools    = null;    // { topArtists:[name], lovedTracks:[{name,artist}] }
-let _discCursors      = {};      // rotating cursor per seed list — keeps refills fresh
-let _discQueue        = [];      // { track, weight, reason } waiting to be rendered
-let _discQueueKeys    = new Set();   // keys already sitting in the queue (avoid re-adding)
-let _discShownKeys    = new Set();   // keys already rendered this session (never repeat)
-let _discArtistCounts = {};          // session-wide artist counts (diversity cap)
-let _discActiveDropdown = null;
-const _discEnrichCache  = new Map(); // "name|artist" -> { image, album }
+let _discInitialized     = false;  // true once the first load has completed
+let _discRefilling       = false;  // guards re-entrant pool refills
+let _discLoadingMore     = false;  // guards re-entrant scroll-triggered loads
+let _discShuffling       = false;  // guards re-entrant Surprise-Me taps
+let _discProfile         = null;   // hydrated UserTasteProfile (Sets)
+let _discProfileRaw      = null;   // raw profile (proper-case seed arrays)
+let _discSeedPools       = null;   // { topArtists:[name], lovedTracks:[{name,artist}] }
+let _discCursors         = {};     // rotating cursor per seed list — keeps refills fresh
+let _discQueue           = [];     // { track, weight, reason } waiting to be rendered
+let _discQueueKeys       = new Set();  // keys already sitting in the queue
+let _discShownKeys       = new Set();  // keys already rendered this session (never repeat)
+let _discArtistCounts    = {};         // session-wide artist counts (diversity)
+let _discArtistCap       = 2;          // current per-artist cap (relaxes if it stalls growth)
+let _discEmptyStreak     = 0;          // consecutive empty/starved refills
+let _discActiveDropdown  = null;
+const _discEnrichCache   = new Map();  // "name|artist" -> resolved artwork URL
 
-const _DISC_BATCH_SIZE     = 12;
-const _DISC_LOW_WATER      = 10;   // background-refill trigger point
-const _DISC_MAX_PER_ARTIST = 2;    // session-wide diversity cap
+const _DISC_BATCH_SIZE         = 12;
+const _DISC_INITIAL_BATCH_SIZE = 20;  // first load shows more, then infinite scroll takes over
+const _DISC_LOW_WATER       = 10;   // background-refill trigger point
+const _DISC_MAX_PER_ARTIST  = 2;    // starting session-wide diversity cap
+const _DISC_ARTIST_CAP_HARD = 6;    // never relax past this, even under pressure
+const _DISC_GATHER_ATTEMPTS = 3;    // retries within a single refill before falling back
 
 // ══════════════════════════════════════════════════════════════
 //  SCREEN INIT — called by nav.js on every visit to 'discover'
@@ -62,9 +76,8 @@ async function screen_discover() {
   _setupDiscPullToRefresh();
 
   if (_discInitialized) {
-    // Already loaded once this app session — leave the feed as the user left
-    // it (this is a continuous, resumable discovery session, not a reset-
-    // on-every-visit list). Just make sure ripples are bound.
+    // Already loaded once this app session — this is a continuous, resumable
+    // discovery session, not a reset-on-every-visit list. Just re-bind ripples.
     if (typeof _initRipples === 'function') {
       _initRipples(document.querySelector('[data-screen="discover"]'));
     }
@@ -81,10 +94,16 @@ async function screen_discover() {
 }
 
 async function _discLoadFirstBatch() {
+  _discFillSkeleton();
   _discShowState('loading');
   try {
     await _discEnsureProfile();
-    await _discRefillQueue();
+    // Keep refilling until the pool can satisfy the larger initial batch
+    // (or attempts run out) — each pass rotates to different seeds, so
+    // this widens the pool rather than repeating the same request.
+    for (let i = 0; i < 3 && _discQueue.length < _DISC_INITIAL_BATCH_SIZE; i++) {
+      await _discRefillQueue();
+    }
     _discRenderNextBatch(true);
   } catch (e) {
     _discInitialized = false; // allow retry to actually reload
@@ -113,6 +132,43 @@ function _discShowState(s, msg, title) {
   }
 }
 
+/**
+ * Fills the loading state with just enough skeleton cards to cover the
+ * whole visible viewport (plus a small buffer), instead of a fixed count —
+ * so there's never a gap of empty space below the skeletons while the
+ * first batch of recommendations is still loading.
+ */
+function _discSkelCardHTML() {
+  return `
+    <div class="disc-skel-card">
+      <div class="disc-skel-art"></div>
+      <div class="disc-skel-lines">
+        <div class="disc-skel-line disc-skel-title"></div>
+        <div class="disc-skel-line disc-skel-artist"></div>
+        <div class="disc-skel-line disc-skel-reason"></div>
+      </div>
+    </div>`;
+}
+
+function _discFillSkeleton() {
+  const skel = document.getElementById('discoverSkeleton');
+  if (!skel) return;
+
+  const CARD_H  = 82; // approx rendered height of one .disc-skel-card
+  const GAP     = 12; // .discover-skeleton flex gap
+  const host    = _discGetScrollHost();
+  const header  = document.querySelector('.discover-header');
+  const headerH = header ? header.offsetHeight + 18 /* header's margin-bottom */ : 88;
+  const viewportH = (host?.clientHeight || window.innerHeight) - headerH;
+
+  // +2 buffer cards so the skeleton always slightly overflows the fold
+  // rather than under-filling it — matches how YouTube/Spotify-style
+  // loading states never leave a visible gap at the bottom.
+  const count = Math.max(4, Math.ceil(viewportH / (CARD_H + GAP)) + 2);
+
+  skel.innerHTML = _discSkelCardHTML().repeat(count);
+}
+
 // ══════════════════════════════════════════════════════════════
 //  TASTE PROFILE + SEED POOLS
 // ══════════════════════════════════════════════════════════════
@@ -125,13 +181,13 @@ async function _discEnsureProfile() {
  * Builds the two seed pools not covered by the shared UserTasteProfile:
  *   - proper-cased top artists (profile only stores lowercased names)
  *   - Loved Tracks (explicit "I love this" signal — strongest of all)
- * Cached for the lifetime of the screen session.
+ * Cached for the lifetime of the screen session (reshuffled on refresh).
  */
 async function _discBuildSeedPools() {
   if (_discSeedPools) return _discSeedPools;
   const [artRes, lovedRes] = await Promise.allSettled([
-    lfmCall({ method: 'user.gettopartists',  user: state.username, period: 'overall', limit: 30 }),
-    lfmCall({ method: 'user.getlovedtracks', user: state.username, limit: 50 }),
+    lfmCall({ method: 'user.gettopartists',  user: state.username, period: 'overall', limit: 40 }),
+    lfmCall({ method: 'user.getlovedtracks', user: state.username, limit: 100 }),
   ]);
   const topArtists = artRes.status === 'fulfilled'
     ? (artRes.value.topartists?.artist || []).map(a => a.name)
@@ -157,155 +213,225 @@ function _discTakeRotating(list, n, cursorKey) {
   return out;
 }
 
+/** Shuffle within small fixed-size windows — keeps the overall familiar/
+ *  discovery ratio intact while breaking up the otherwise-deterministic
+ *  interleave pattern, so the feed order never feels mechanical. */
+function _discChunkShuffle(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(...shuffleArray(arr.slice(i, i + size)));
+  return out;
+}
+
 // ══════════════════════════════════════════════════════════════
-//  RECOMMENDATION ENGINE
-//  Blends 6 weighted signal buckets in parallel, dedupes, excludes
-//  already-known/already-shown tracks, then interleaves ~60/40
-//  familiar-style vs. pure discovery for a naturally mixed feed.
+//  RECOMMENDATION ENGINE — candidate gathering
+//  Blends 6 weighted signal buckets in parallel, dedupes, and
+//  excludes already-known / already-shown tracks. Returns a
+//  scored candidate array (NOT yet diversity-capped or queued —
+//  shared by both the infinite-scroll refill and the Shuffle
+//  "Surprise Me" picker below).
+// ══════════════════════════════════════════════════════════════
+async function _discGatherCandidates() {
+  const profile = _discProfile;
+  const raw     = _discProfileRaw;
+  const pools   = await _discBuildSeedPools();
+
+  // Each candidate is tagged with a source bucket: 'personal' (rooted in the
+  // user's own library — recent/loved/top tracks, their similar artists, or
+  // their own top tags) vs 'global' (site-wide popularity, no personalization
+  // at all). Shuffle uses this to strongly prefer personal-taste picks.
+  const weighted = []; // { track, weight, reason, source }
+  const push = (tracks, weight, reason, source) => {
+    (tracks || []).forEach(t => { if (t?.name && t?.artist) weighted.push({ track: t, weight, reason, source }); });
+  };
+
+  const jobs = [];
+
+  // weight 4 — similar to recent listening (current mood)
+  _discTakeRotating(raw.recentTrackSeeds, 4, 'recent').forEach(seed => {
+    jobs.push((async () => {
+      try {
+        const d = await lfmCall({ method: 'track.getsimilar', track: seed.name, artist: seed.artist, limit: 20 });
+        push(normaliseTracks(d.similartracks?.track), 4, 'Similar to your recent listening', 'personal');
+      } catch {}
+    })());
+  });
+
+  // weight 4 — similar to Loved Tracks (explicit signal)
+  _discTakeRotating(pools.lovedTracks, 3, 'loved').forEach(seed => {
+    jobs.push((async () => {
+      try {
+        const d = await lfmCall({ method: 'track.getsimilar', track: seed.name, artist: seed.artist, limit: 20 });
+        push(normaliseTracks(d.similartracks?.track), 4, `Because you loved "${seed.name}"`, 'personal');
+      } catch {}
+    })());
+  });
+
+  // weight 3 — similar to all-time top tracks
+  _discTakeRotating(raw.topTrackSeeds, 4, 'top').forEach(seed => {
+    jobs.push((async () => {
+      try {
+        const d = await lfmCall({ method: 'track.getsimilar', track: seed.name, artist: seed.artist, limit: 20 });
+        push(normaliseTracks(d.similartracks?.track), 3, `Because you like ${seed.artist}`, 'personal');
+      } catch {}
+    })());
+  });
+
+  // weight 2 — similar artists → their top tracks
+  _discTakeRotating(pools.topArtists, 3, 'artist').forEach(rootArtist => {
+    jobs.push((async () => {
+      try {
+        const simD       = await lfmCall({ method: 'artist.getsimilar', artist: rootArtist, limit: 12 });
+        const simArtists = shuffleArray(simD.similarartists?.artist || []).slice(0, 3);
+        await Promise.allSettled(simArtists.map(async sa => {
+          const page = Math.ceil(Math.random() * 3);
+          const d    = await lfmCall({ method: 'artist.gettoptracks', artist: sa.name, limit: 8, page });
+          push(normaliseTracks(d.toptracks?.track), 2, 'Similar to your favorite artists', 'personal');
+        }));
+      } catch {}
+    })());
+  });
+
+  // weight 1 — genre / tag discovery, rooted in the user's OWN top tags
+  // (still a personal-taste signal, just a looser one than direct similarity)
+  _discTakeRotating(raw.topTags, 4, 'tag').forEach(tag => {
+    jobs.push((async () => {
+      try {
+        const page  = Math.floor(Math.random() * 15) + 1;
+        const d     = await lfmCall({ method: 'tag.gettoptracks', tag, limit: 20, page });
+        const label = tag.replace(/\b\w/g, c => c.toUpperCase());
+        const reason = Math.random() < 0.5 ? `Based on your ${label} taste` : `Recommended from ${label}`;
+        push(normaliseTracks(d.tracks?.track), 1, reason, 'personal');
+      } catch {}
+    })());
+  });
+
+  // weight 1 — global Last.fm popularity (wide random page range — near-
+  // unlimited pool). NOT personalized — kept in the general feed mix, but
+  // Shuffle treats this source as a last resort only (see _discPickSurpriseTrack).
+  jobs.push((async () => {
+    try {
+      const page = Math.floor(Math.random() * 40) + 1;
+      const d    = await lfmCall({ method: 'chart.gettoptracks', limit: 20, page });
+      push(normaliseTracks(d.tracks?.track), 1, 'Popular on Last.fm right now', 'global');
+    } catch {}
+  })());
+
+  await Promise.allSettled(jobs);
+  if (!weighted.length) return [];
+
+  // ── Dedup this round — keep the highest-weight copy + its reason ──
+  const bestOf = new Map();
+  for (const { track, weight, reason, source } of weighted) {
+    const k  = `${track.name}|${track.artist}`.toLowerCase();
+    const ex = bestOf.get(k);
+    if (!ex || weight > ex.weight) bestOf.set(k, { track, weight, reason, source });
+  }
+  let candidates = [...bestOf.values()];
+
+  // ── This is a DISCOVERY feed — exclude tracks the user already knows ──
+  candidates = candidates.filter(({ track }) => {
+    const k = `${track.name}|${track.artist}`.toLowerCase();
+    return !profile.topTrackKeys.has(k) && !profile.recentTrackKeys.has(k);
+  });
+
+  // ── Never a duplicate — exclude anything already queued or shown ──
+  candidates = candidates.filter(({ track }) => {
+    const k = `${track.name}|${track.artist}`.toLowerCase();
+    return !_discShownKeys.has(k) && !_discQueueKeys.has(k);
+  });
+
+  // ── Cross-session freshness (app.js's 21-day seen-track cache) ──
+  const freshKeys = new Set(
+    _filterFresh(candidates.map(c => c.track)).map(t => `${t.name}|${t.artist}`.toLowerCase())
+  );
+  candidates = candidates.filter(({ track }) => freshKeys.has(`${track.name}|${track.artist}`.toLowerCase()));
+
+  // ── Score (reuses app.js's artist-familiarity + bucket-confidence model) ──
+  return candidates
+    .map(({ track, weight, reason, source }) => ({ track, weight, reason, source, score: _scoreTrack(track, profile, weight) }))
+    .filter(({ score }) => score !== -1);
+}
+
+/**
+ * Guaranteed-content safety net. Only used when normal candidate
+ * gathering comes back completely empty (e.g. a transient API hiccup,
+ * or every rotating seed briefly exhausted at once) — pulls straight
+ * from a random Last.fm global chart page so the feed can never
+ * truly dead-end. Still deduped against everything already shown.
+ */
+async function _discFallbackCandidates() {
+  const out = [];
+  const seen = new Set();
+  try {
+    const page = Math.floor(Math.random() * 80) + 1;
+    const d = await lfmCall({ method: 'chart.gettoptracks', limit: 30, page });
+    normaliseTracks(d.tracks?.track).forEach(track => {
+      const k = `${track.name}|${track.artist}`.toLowerCase();
+      if (seen.has(k) || _discShownKeys.has(k) || _discQueueKeys.has(k)) return;
+      seen.add(k);
+      out.push({ track, weight: 1, reason: 'Popular on Last.fm right now', score: 5, source: 'global' });
+    });
+  } catch {}
+  return out;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  RECOMMENDATION ENGINE — queue refill
+//  Mixes ~60/40 familiar-style vs. pure discovery, lightly shuffles
+//  for freshness, applies the (dynamically relaxing) artist-diversity
+//  cap, then enqueues. Retries internally and falls back to
+//  guaranteed content before ever giving up for this call.
 // ══════════════════════════════════════════════════════════════
 async function _discRefillQueue() {
   if (_discRefilling) return;
   _discRefilling = true;
   try {
-    const profile = _discProfile;
-    const raw     = _discProfileRaw;
-    const pools   = await _discBuildSeedPools();
-
-    const weighted = []; // { track, weight, reason }
-    const push = (tracks, weight, reason) => {
-      (tracks || []).forEach(t => { if (t?.name && t?.artist) weighted.push({ track: t, weight, reason }); });
-    };
-
-    const jobs = [];
-
-    // Bucket — weight 4: similar to recent listening (current mood)
-    _discTakeRotating(raw.recentTrackSeeds, 4, 'recent').forEach(seed => {
-      jobs.push((async () => {
-        try {
-          const d = await lfmCall({ method: 'track.getsimilar', track: seed.name, artist: seed.artist, limit: 20 });
-          push(normaliseTracks(d.similartracks?.track), 4, 'Similar to your recent listening');
-        } catch {}
-      })());
-    });
-
-    // Bucket — weight 4: similar to Loved Tracks (explicit signal)
-    _discTakeRotating(pools.lovedTracks, 3, 'loved').forEach(seed => {
-      jobs.push((async () => {
-        try {
-          const d = await lfmCall({ method: 'track.getsimilar', track: seed.name, artist: seed.artist, limit: 20 });
-          push(normaliseTracks(d.similartracks?.track), 4, `Because you loved "${seed.name}"`);
-        } catch {}
-      })());
-    });
-
-    // Bucket — weight 3: similar to all-time top tracks
-    _discTakeRotating(raw.topTrackSeeds, 4, 'top').forEach(seed => {
-      jobs.push((async () => {
-        try {
-          const d = await lfmCall({ method: 'track.getsimilar', track: seed.name, artist: seed.artist, limit: 20 });
-          push(normaliseTracks(d.similartracks?.track), 3, `Because you like ${seed.artist}`);
-        } catch {}
-      })());
-    });
-
-    // Bucket — weight 2: similar artists → their top tracks
-    _discTakeRotating(pools.topArtists, 3, 'artist').forEach(rootArtist => {
-      jobs.push((async () => {
-        try {
-          const simD       = await lfmCall({ method: 'artist.getsimilar', artist: rootArtist, limit: 12 });
-          const simArtists = shuffleArray(simD.similarartists?.artist || []).slice(0, 3);
-          await Promise.allSettled(simArtists.map(async sa => {
-            const page = Math.ceil(Math.random() * 3);
-            const d    = await lfmCall({ method: 'artist.gettoptracks', artist: sa.name, limit: 8, page });
-            push(normaliseTracks(d.toptracks?.track), 2, 'Similar to your favorite artists');
-          }));
-        } catch {}
-      })());
-    });
-
-    // Bucket — weight 1: genre / tag discovery
-    _discTakeRotating(raw.topTags, 3, 'tag').forEach(tag => {
-      jobs.push((async () => {
-        try {
-          const page  = Math.floor(Math.random() * 8) + 1;
-          const d     = await lfmCall({ method: 'tag.gettoptracks', tag, limit: 20, page });
-          const label = tag.replace(/\b\w/g, c => c.toUpperCase());
-          const reason = Math.random() < 0.5 ? `Based on your ${label} taste` : `Recommended from ${label}`;
-          push(normaliseTracks(d.tracks?.track), 1, reason);
-        } catch {}
-      })());
-    });
-
-    // Bucket — weight 1: global Last.fm popularity (different page each refill)
-    jobs.push((async () => {
-      try {
-        const page = Math.floor(Math.random() * 15) + 1;
-        const d    = await lfmCall({ method: 'chart.gettoptracks', limit: 20, page });
-        push(normaliseTracks(d.tracks?.track), 1, 'Popular on Last.fm right now');
-      } catch {}
-    })());
-
-    await Promise.allSettled(jobs);
-    if (!weighted.length) return;
-
-    // ── Dedup this round — keep the highest-weight copy + its reason ──
-    const bestOf = new Map();
-    for (const { track, weight, reason } of weighted) {
-      const k  = `${track.name}|${track.artist}`.toLowerCase();
-      const ex = bestOf.get(k);
-      if (!ex || weight > ex.weight) bestOf.set(k, { track, weight, reason });
+    let scored = [];
+    for (let attempt = 0; attempt < _DISC_GATHER_ATTEMPTS && scored.length === 0; attempt++) {
+      scored = await _discGatherCandidates();
     }
-    let candidates = [...bestOf.values()];
+    if (!scored.length) scored = await _discFallbackCandidates();
+    if (!scored.length) { _discEmptyStreak++; return; } // truly nothing available right now
 
-    // ── This is a DISCOVERY feed — exclude tracks the user already knows ──
-    candidates = candidates.filter(({ track }) => {
-      const k = `${track.name}|${track.artist}`.toLowerCase();
-      return !profile.topTrackKeys.has(k) && !profile.recentTrackKeys.has(k);
-    });
-
-    // ── Exclude anything already queued or shown this session ──
-    candidates = candidates.filter(({ track }) => {
-      const k = `${track.name}|${track.artist}`.toLowerCase();
-      return !_discShownKeys.has(k) && !_discQueueKeys.has(k);
-    });
-
-    // ── Cross-session freshness (app.js's 21-day seen-track cache) ──
-    const freshKeys = new Set(
-      _filterFresh(candidates.map(c => c.track)).map(t => `${t.name}|${t.artist}`.toLowerCase())
-    );
-    candidates = candidates.filter(({ track }) => freshKeys.has(`${track.name}|${track.artist}`.toLowerCase()));
-
-    // ── Score (reuses app.js's artist-familiarity + bucket-confidence model) ──
-    let scored = candidates
-      .map(({ track, weight, reason }) => ({ track, weight, reason, score: _scoreTrack(track, profile, weight) }))
-      .filter(({ score }) => score !== -1);
     scored.sort((a, b) => b.score - a.score);
-
-    // ── Mix familiar-style (weight ≥ 3) with pure discovery (weight ≤ 2) ──
-    // Interleaved ~60/40 so hidden gems and popular/familiar picks both
-    // surface, rather than one pool dominating the whole feed.
     const familiar  = scored.filter(s => s.weight >= 3);
     const discovery = scored.filter(s => s.weight <= 2);
+
+    // Interleave ~60/40 so hidden gems and popular/familiar picks both
+    // surface, rather than one pool dominating the whole feed.
     const mixed = [];
     let fi = 0, di = 0;
     while (fi < familiar.length || di < discovery.length) {
       for (let i = 0; i < 3 && fi < familiar.length; i++)  mixed.push(familiar[fi++]);
       for (let i = 0; i < 2 && di < discovery.length; i++) mixed.push(discovery[di++]);
     }
+    const shuffledMixed = _discChunkShuffle(mixed, 5);
 
-    // ── Artist diversity cap (session-wide, not just per-batch) ──
+    // ── Artist diversity cap (session-wide, relaxes if it's the bottleneck) ──
     const accepted = [];
-    for (const c of mixed) {
+    for (const c of shuffledMixed) {
       const ak   = c.track.artist.toLowerCase();
       const used = (_discArtistCounts[ak] || 0) + accepted.filter(x => x.track.artist.toLowerCase() === ak).length;
-      if (used >= _DISC_MAX_PER_ARTIST) continue;
+      if (used >= _discArtistCap) continue;
       accepted.push(c);
     }
 
-    accepted.forEach(c => {
-      _discQueueKeys.add(`${c.track.name}|${c.track.artist}`.toLowerCase());
-      _discQueue.push(c);
-    });
+    if (!accepted.length) {
+      _discEmptyStreak++;
+    } else {
+      _discEmptyStreak = 0;
+      accepted.forEach(c => {
+        _discQueueKeys.add(`${c.track.name}|${c.track.artist}`.toLowerCase());
+        _discQueue.push(c);
+      });
+    }
+
+    // If the diversity cap is choking growth two refills in a row, relax it
+    // a notch rather than let the feed stall — still capped, never unlimited.
+    if (_discEmptyStreak >= 2 && _discArtistCap < _DISC_ARTIST_CAP_HARD) {
+      _discArtistCap++;
+      _discEmptyStreak = 0;
+    }
   } finally {
     _discRefilling = false;
   }
@@ -320,7 +446,7 @@ function _discRenderNextBatch(isFirst) {
 
   document.getElementById('discTrailingSkel')?.remove();
 
-  const take = _discQueue.splice(0, _DISC_BATCH_SIZE);
+  const take = _discQueue.splice(0, isFirst ? _DISC_INITIAL_BATCH_SIZE : _DISC_BATCH_SIZE);
 
   if (isFirst) {
     list.innerHTML = '';
@@ -329,6 +455,7 @@ function _discRenderNextBatch(isFirst) {
   } else if (!take.length) {
     // Nothing ready yet — leave the trailing skeleton up; the in-flight
     // background refill (triggered below / by scroll) will call this again.
+    // The feed itself never shows an "end of list" state past first load.
     _discEnsureTrailingSkeleton();
     return;
   }
@@ -368,13 +495,28 @@ function _discRenderNextBatch(isFirst) {
     _initRipples(document.querySelector('[data-screen="discover"]'));
   }
 
-  // Keep the pool topped up ahead of the user reaching the bottom.
+  // Keep the pool topped up well ahead of the user reaching the bottom.
   if (_discQueue.length < _DISC_LOW_WATER && !_discRefilling) {
-    _discEnsureTrailingSkeleton();
-    _discRefillQueue().catch(() => {});
+    _discTopUpAndRender();
   }
 }
 
+/**
+ * Refills the pool in the background and then actually renders whatever
+ * lands — unlike a fire-and-forget refill, this guarantees the trailing
+ * skeleton is always replaced by real cards (or removed) once content is
+ * ready, even when there's no scroll gesture to trigger a follow-up render
+ * (e.g. right after Shuffle, where a single card leaves nothing to scroll).
+ */
+async function _discTopUpAndRender() {
+  _discEnsureTrailingSkeleton();
+  for (let i = 0; i < 3 && _discQueue.length === 0; i++) {
+    if (!_discRefilling) await _discRefillQueue().catch(() => {});
+  }
+  _discRenderNextBatch(false);
+}
+
+// Card now shows exactly 3 lines: title, artist, reason. No album line.
 function _discCardInnerHTML(track, reason) {
   const hasImg = track.image && track.image.trim();
   const k      = escAttr(`${track.name}|${track.artist}`.toLowerCase());
@@ -422,73 +564,141 @@ function _discEnsureTrailingSkeleton() {
 }
 
 /**
- * Progressive enrichment — fetches album title (never returned by the
- * similar-tracks / tag / chart endpoints) and, only when still missing,
- * artwork. Runs after the card is already on screen so the feed never
- * blocks on this; cards quietly gain an album line / cover when ready.
+ * Progressive artwork enrichment — only runs for cards that don't already
+ * have a Last.fm image (similar-tracks / tag / chart endpoints sometimes
+ * omit it). Cards never block on this; artwork quietly fades in when ready.
+ * No album title is fetched or displayed — cards are title/artist/reason only.
  */
 async function _discEnrichBatch(take) {
   const BATCH = 5;
-  for (let i = 0; i < take.length; i += BATCH) {
-    const slice = take.slice(i, i + BATCH);
+  const needing = take.filter(({ track }) => !track.image || !track.image.trim());
+  for (let i = 0; i < needing.length; i += BATCH) {
+    const slice = needing.slice(i, i + BATCH);
     await Promise.allSettled(slice.map(async ({ track }) => {
       try {
-        const info = await _discEnrichTrack(track);
+        const url = await _discResolveArt(track);
+        if (!url) return;
+        track.image = url;
         const key  = `${track.name}|${track.artist}`.toLowerCase();
         const wrap = document.querySelector(`.disc-card-art-wrap[data-key="${CSS.escape(key)}"]`);
         if (!wrap) return;
-        const card = wrap.closest('.disc-card');
-
-        if (info.album && card && !card.querySelector('.disc-card-album')) {
-          const albumEl = document.createElement('div');
-          albumEl.className = 'disc-card-album';
-          albumEl.textContent = info.album;
-          card.querySelector('.disc-card-reason')?.insertAdjacentElement('beforebegin', albumEl);
+        let img = wrap.querySelector('.disc-card-art');
+        const fb = wrap.querySelector('.disc-card-art-fallback');
+        if (!img) {
+          img = document.createElement('img');
+          img.className = 'disc-card-art';
+          img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
+          img.style.cssText = 'opacity:0;transition:opacity 0.25s ease';
+          wrap.insertBefore(img, fb);
         }
-
-        if (info.image && (!track.image || !track.image.trim())) {
-          track.image = info.image;
-          let img = wrap.querySelector('.disc-card-art');
-          const fb = wrap.querySelector('.disc-card-art-fallback');
-          if (!img) {
-            img = document.createElement('img');
-            img.className = 'disc-card-art';
-            img.alt = ''; img.loading = 'lazy'; img.decoding = 'async';
-            img.style.cssText = 'opacity:0;transition:opacity 0.25s ease';
-            wrap.insertBefore(img, fb);
-          }
-          img.onload  = () => { img.style.opacity = '1'; if (fb) fb.style.display = 'none'; };
-          img.onerror = () => { img.style.display = 'none'; };
-          img.src = info.image;
-        }
+        img.onload  = () => { img.style.opacity = '1'; if (fb) fb.style.display = 'none'; };
+        img.onerror = () => { img.style.display = 'none'; };
+        img.src = url;
       } catch {}
     }));
   }
 }
 
-async function _discEnrichTrack(track) {
+async function _discResolveArt(track) {
   const key = `${track.name}|${track.artist}`.toLowerCase();
   if (_discEnrichCache.has(key)) return _discEnrichCache.get(key);
 
-  const result = { image: track.image || '', album: '' };
+  let url = '';
   try {
     const data  = await lfmCall({ method: 'track.getInfo', track: track.name, artist: track.artist, autocorrect: 1 });
-    const album = data?.track?.album;
-    if (album?.title) result.album = album.title;
-    if (!result.image && album?.image) {
-      const img = album.image.find(im => im.size === 'extralarge' && _isRealImg(im['#text']))
-               || album.image.find(im => im.size === 'large'      && _isRealImg(im['#text']))
-               || album.image.find(im => _isRealImg(im['#text']));
-      if (img) result.image = img['#text'];
+    const image = data?.track?.album?.image;
+    if (image) {
+      const img = image.find(im => im.size === 'extralarge' && _isRealImg(im['#text']))
+               || image.find(im => im.size === 'large'      && _isRealImg(im['#text']))
+               || image.find(im => _isRealImg(im['#text']));
+      if (img) url = img['#text'];
     }
-  } catch { /* network / API error — fall through to iTunes for art only */ }
+  } catch { /* fall through to iTunes */ }
 
-  if (!result.image) {
-    try { result.image = await _itunesFetchArtwork(track.name, track.artist, 'track'); } catch {}
+  if (!url) {
+    try { url = await _itunesFetchArtwork(track.name, track.artist, 'track'); } catch {}
   }
 
-  _discEnrichCache.set(key, result);
-  return result;
+  _discEnrichCache.set(key, url);
+  return url;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SHUFFLE DISCOVERY — "Surprise Me"
+//  Picks one high-uniqueness track (biased toward the discovery
+//  pool — tag/global/similar-artist — and toward the lowest
+//  familiarity score within it, i.e. the least "obvious" pick),
+//  then replaces the current feed with a brand-new session
+//  seeded by that pick, still topping the queue back up in the
+//  background so scrolling continues normally afterwards.
+// ══════════════════════════════════════════════════════════════
+async function _discShuffleNow() {
+  if (_discShuffling) return;
+  _discShuffling = true;
+  const btn = document.getElementById('discoverShuffleBtn');
+  btn?.classList.add('discover-shuffle-spinning');
+
+  try {
+    if (!state.username || !state.apiKey) {
+      showToast('Add your username and API key in Settings', 'error');
+      return;
+    }
+    if (!_discProfile) await _discEnsureProfile();
+
+    const pick = await _discPickSurpriseTrack();
+    if (!pick) { showToast('Could not find a new track — try again', 'error'); return; }
+
+    // Brand-new discovery session: clear the temporary cache & diversity state.
+    _discQueue = []; _discQueueKeys = new Set(); _discShownKeys = new Set();
+    _discArtistCounts = {}; _discArtistCap = _DISC_MAX_PER_ARTIST; _discEmptyStreak = 0;
+
+    const list = document.getElementById('discoverList');
+    if (list) {
+      list.style.opacity = '0';
+      await new Promise(r => setTimeout(r, 150));
+    }
+    document.getElementById('discTrailingSkel')?.remove();
+    _discShowState('feed');
+
+    _discQueue.push(pick);
+    _discQueueKeys.add(`${pick.track.name}|${pick.track.artist}`.toLowerCase());
+    _discRenderNextBatch(true);
+
+    requestAnimationFrame(() => { if (list) list.style.opacity = '1'; });
+
+    // Refill the pool in the background so scrolling continues seamlessly.
+    _discRefillQueue().catch(() => {});
+    showToast('Surprise pick ready \u2728', 'success');
+  } catch (e) {
+    showToast(e?.message || 'Could not shuffle — try again', 'error');
+  } finally {
+    _discShuffling = false;
+    setTimeout(() => btn?.classList.remove('discover-shuffle-spinning'), 650);
+  }
+}
+
+async function _discPickSurpriseTrack() {
+  let scored = await _discGatherCandidates();
+  if (!scored.length) scored = await _discFallbackCandidates();
+  if (!scored.length) return null;
+
+  // Personal-taste signals ONLY (similar tracks/artists/tags all rooted in
+  // the user's own library). Global chart popularity is excluded from the
+  // primary pool entirely — it's used below only if nothing personal is
+  // available at all (e.g. a brand-new Last.fm account with no history).
+  const personal = scored.filter(s => s.source !== 'global');
+  const pool = personal.length ? personal : scored;
+
+  // Within personal taste, still lean toward the "hidden gem" end: prefer
+  // the looser discovery-flavored buckets (similar artists / own top tags,
+  // weight ≤ 2) sorted toward lowest familiarity score, falling back to the
+  // stronger direct-similarity signals (recent/loved/top, weight ≥ 3) if
+  // that pool is empty. A small random window keeps repeated taps varied.
+  const gems     = pool.filter(s => s.weight <= 2).sort((a, b) => a.score - b.score);
+  const familiar = pool.filter(s => s.weight >= 3).sort((a, b) => a.score - b.score);
+  const chosen = gems.length ? gems : familiar;
+  const topUnique = chosen.slice(0, Math.min(15, chosen.length));
+  return topUnique[Math.floor(Math.random() * topUnique.length)];
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -496,6 +706,9 @@ async function _discEnrichTrack(track) {
 //  The scroll host is the wrapper nav.js creates for this screen
 //  ([data-screen="discover"]) — same pattern as search/genres,
 //  where .page-scroll fills that wrapper rather than scrolling itself.
+//  Loads the next batch well before the bottom is reached, and the
+//  background pool refill (triggered from _discRenderNextBatch)
+//  keeps content ready ahead of time — the feed has no end.
 // ══════════════════════════════════════════════════════════════
 function _discGetScrollHost() {
   return document.querySelector('[data-screen="discover"]');
@@ -508,13 +721,15 @@ function _setupDiscScroll() {
 
   host.addEventListener('scroll', () => {
     if (_discLoadingMore || !_discInitialized) return;
-    const threshold = 600;
+    const threshold = 800;
     if (host.scrollTop + host.clientHeight >= host.scrollHeight - threshold) {
       _discLoadingMore = true;
       (async () => {
-        if (_discQueue.length < _DISC_BATCH_SIZE && !_discRefilling) {
-          _discEnsureTrailingSkeleton();
-          await _discRefillQueue().catch(() => {});
+        // Try a couple of times in a row if the pool happens to be thin —
+        // between the wide tag/chart page range and the fallback bucket
+        // this should essentially always produce content on the first try.
+        for (let i = 0; i < 2 && _discQueue.length < _DISC_BATCH_SIZE; i++) {
+          if (!_discRefilling) await _discRefillQueue().catch(() => {});
         }
         _discRenderNextBatch(false);
       })().finally(() => { _discLoadingMore = false; });
@@ -523,10 +738,11 @@ function _setupDiscScroll() {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  PULL TO REFRESH — mirrors home.js's gesture handling exactly,
-//  scoped to the Discover scroll host. Rebuilds the feed from
-//  scratch (fresh queue + session dedupe reset), still respecting
-//  the cross-session 21-day seen-track cache.
+//  PULL TO REFRESH — Material Design 3 gesture + spinner, mirrors
+//  home.js's handling, scoped to the Discover scroll host. Rebuilds
+//  the feed from scratch: clears the session cache, diversity state,
+//  and reshuffles the seed pools so it truly starts over discovering,
+//  while still respecting the cross-session 21-day seen-track cache.
 // ══════════════════════════════════════════════════════════════
 let _discPtr = { startY: 0, active: false, indicator: null, refreshing: false };
 
@@ -591,8 +807,12 @@ function _setupDiscPullToRefresh() {
     if (!_discPtr.active || _discPtr.refreshing) return;
     const delta = e.touches[0].clientY - _discPtr.startY;
     if (delta <= 0) { _discPtr.active = false; ptrHide(); return; }
+    // Stop the WebView's native rubber-band/overscroll from swallowing the
+    // gesture right at the scroll boundary — without this, touchmove can
+    // stall partway through the pull and the custom indicator never appears.
+    if (host.scrollTop === 0 && e.cancelable) e.preventDefault();
     ptrTrack(delta);
-  }, { passive: true });
+  }, { passive: false });
 
   host.addEventListener('touchend', (e) => {
     if (!_discPtr.active) return;
@@ -614,12 +834,21 @@ function _setupDiscPullToRefresh() {
 }
 
 async function _discFullRefresh() {
-  _discQueue = []; _discQueueKeys = new Set(); _discShownKeys = new Set(); _discArtistCounts = {};
+  // Reset the temporary recommendation cache and diversity state — this is
+  // an entirely fresh discovery session, not a continuation of the old one.
+  _discQueue = []; _discQueueKeys = new Set(); _discShownKeys = new Set();
+  _discArtistCounts = {}; _discArtistCap = _DISC_MAX_PER_ARTIST; _discEmptyStreak = 0;
+  _discCursors = {};
+  if (_discSeedPools) {
+    _discSeedPools.topArtists  = shuffleArray(_discSeedPools.topArtists);
+    _discSeedPools.lovedTracks = shuffleArray(_discSeedPools.lovedTracks);
+  }
   document.getElementById('discTrailingSkel')?.remove();
+
   try {
     await _discRefillQueue();
     _discRenderNextBatch(true);
-    if (_discQueue.length || document.querySelectorAll('#discoverList .disc-card').length) {
+    if (document.querySelectorAll('#discoverList .disc-card').length) {
       showToast('Feed refreshed \u2713', 'success');
     }
   } catch (e) {
