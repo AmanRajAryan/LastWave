@@ -12,43 +12,16 @@
       <div class="discover-title">Discover</div>
       <div class="discover-sub">Fresh tracks, powered by your Last.fm taste</div>
     </div>
+    <button class="icon-btn discover-shuffle-btn" id="discoverShuffleBtn" onclick="_discShuffleNow()" title="Surprise me" aria-label="Surprise me">
+      <span class="material-symbols-rounded">shuffle</span>
+    </button>
   </div>
 
-  <!-- ── Loading skeleton (first load only) ───────────────────── -->
-  <div id="discoverSkeleton" class="discover-skeleton hidden">
-    <div class="disc-skel-card">
-      <div class="disc-skel-art"></div>
-      <div class="disc-skel-lines">
-        <div class="disc-skel-line disc-skel-title"></div>
-        <div class="disc-skel-line disc-skel-artist"></div>
-        <div class="disc-skel-line disc-skel-reason"></div>
-      </div>
-    </div>
-    <div class="disc-skel-card">
-      <div class="disc-skel-art"></div>
-      <div class="disc-skel-lines">
-        <div class="disc-skel-line disc-skel-title"></div>
-        <div class="disc-skel-line disc-skel-artist"></div>
-        <div class="disc-skel-line disc-skel-reason"></div>
-      </div>
-    </div>
-    <div class="disc-skel-card">
-      <div class="disc-skel-art"></div>
-      <div class="disc-skel-lines">
-        <div class="disc-skel-line disc-skel-title"></div>
-        <div class="disc-skel-line disc-skel-artist"></div>
-        <div class="disc-skel-line disc-skel-reason"></div>
-      </div>
-    </div>
-    <div class="disc-skel-card">
-      <div class="disc-skel-art"></div>
-      <div class="disc-skel-lines">
-        <div class="disc-skel-line disc-skel-title"></div>
-        <div class="disc-skel-line disc-skel-artist"></div>
-        <div class="disc-skel-line disc-skel-reason"></div>
-      </div>
-    </div>
-  </div>
+  <!-- ── Loading skeleton (first load only) ─────────────────────
+       Populated dynamically by discover.js — enough cards are
+       generated to fill the visible viewport, so there's never a
+       gap of empty space while recommendations are loading. ──── -->
+  <div id="discoverSkeleton" class="discover-skeleton hidden"></div>
 
   <!-- ── Error state ───────────────────────────────────────────── -->
   <div id="discoverError" class="discover-error hidden">

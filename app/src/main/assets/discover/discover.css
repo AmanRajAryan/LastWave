@@ -8,10 +8,15 @@
 
 .discover-screen { padding-top: 8px; }
 
-/* ── Header ────────────────────────────────────────────────── */
+/* ── Header (title + Shuffle button on the same row) ──────── */
 .discover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 18px;
 }
+.discover-header-text { min-width: 0; }
 .discover-title {
   font-size: 26px;
   font-weight: 800;
@@ -23,12 +28,27 @@
   color: var(--text2);
   margin-top: 4px;
 }
+.discover-shuffle-btn { flex-shrink: 0; }
+.discover-shuffle-btn .material-symbols-rounded {
+  font-size: 24px;
+  color: var(--md-primary);
+  font-variation-settings: 'FILL' 0;
+  display: inline-block;
+}
+.discover-shuffle-btn.discover-shuffle-spinning .material-symbols-rounded {
+  animation: disc-shuffle-spin 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes disc-shuffle-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
 
 /* ── Feed list ─────────────────────────────────────────────── */
 .discover-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  transition: opacity 0.18s ease;
 }
 
 /* ── Recommendation card ──────────────────────────────────────
@@ -74,6 +94,7 @@
   display: none;
 }
 
+/* Only 3 lines now: title, artist, reason — no album line. */
 .disc-card-info {
   flex: 1;
   min-width: 0; /* allow text-overflow ellipsis inside flex */
@@ -91,12 +112,6 @@
   font-size: 12.5px;
   color: var(--text2);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.disc-card-album {
-  font-size: 11.5px;
-  color: var(--text3);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  animation: fadeIn 0.25s ease both;
 }
 .disc-card-reason {
   display: flex;
@@ -130,7 +145,9 @@
 
 /* ── Trailing "loading more" skeleton row ─────────────────────
    Appended at the bottom of the feed while the next batch is
-   being generated (infinite scroll + background pool refill). */
+   being generated (infinite scroll + background pool refill).
+   The feed never truly runs out — this row is always replaced
+   by real cards, never by an "end of list" message. */
 .disc-trailing-skel {
   display: flex; align-items: center; gap: 14px;
   padding: 12px;
@@ -208,7 +225,7 @@
 }
 .discover-retry-btn .material-symbols-rounded { font-size: 18px; }
 
-/* ── Pull-to-refresh spinner (mirrors home screen's PTR) ──────
+/* ── Pull-to-refresh spinner (Material Design 3 style) ────────
    Duplicated locally since discover.css loads independently of
    home.css the first time this screen is ever opened. */
 .ptr-spinner { transition: transform 0.2s ease; }

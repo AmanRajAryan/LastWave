@@ -428,6 +428,11 @@ body.settings-open #headerSearchBtn {
   display: none !important;
 }
 
+/* Hide the header discover button */
+body.settings-open #headerDiscoverBtn {
+  display: none !important;
+}
+
 /* Hide the avatar/settings button */
 body.settings-open #headerUserBtn {
   display: none !important;

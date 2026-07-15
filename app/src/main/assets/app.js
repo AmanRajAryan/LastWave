@@ -1361,6 +1361,7 @@ async function generatePlaylist(skipNav) {
 
   try {
     let tracks = [];
+    let skipSharedPrecheck = false; // set true only for My Recommendations — see below
     const limit = parseInt(state.chipSelections.limit) || 25;
 
     switch (state.selectedMode) {
@@ -1398,8 +1399,14 @@ async function generatePlaylist(skipNav) {
         break;
       case 'mix':
         if (state.visualMode === 'recommendations') {
-          // Smart personalised engine — full taste profile + quality filter
-          tracks = await fetchRecommendations(parseInt(state.chipSelections.count) || 30);
+          // My Recommendations — smart personalised engine.
+          // Uses `limit` (the strict slider value) directly, and the engine
+          // itself already guarantees the exact count + diversity, so the
+          // shared _precheckTracks() re-trim below is skipped for this mode
+          // only (it would otherwise re-cap artist repeats and can shave
+          // tracks off an already-exact, already-diverse playlist).
+          tracks = await fetchRecommendations(limit);
+          skipSharedPrecheck = true;
           state.playlistTitle    = _generateSmartPlaylistName('recommendations', inputs);
           state.playlistSubtitle = _generatePlaylistSubtitle('recommendations', inputs);
         } else {
@@ -1410,7 +1417,9 @@ async function generatePlaylist(skipNav) {
         break;
     }
 
-    state.playlist = _precheckTracks(tracks).slice(0, limit || 200);
+    state.playlist = skipSharedPrecheck
+      ? deduplicateTracks(tracks).slice(0, limit)
+      : _precheckTracks(tracks).slice(0, limit || 200);
     _markAsSeen(state.playlist);
     setLoadingText('Loading album artwork\u2026');
     await enrichTracksWithArt(state.playlist);
@@ -1482,193 +1491,486 @@ async function fetchTagTracks(tag, limit) {
 }
 
 // ══════════════════════════════════════════════════════════════
-//  SMART RECOMMENDATIONS ENGINE  v2
-//  Pipeline:
-//    1. Build UserTasteProfile (parallel, 1-hour cache)
-//    2. Candidate pool — 4 weighted buckets (all parallel):
-//         weight 4 — similar to recent plays (current mood, most personal)
-//         weight 3 — similar to all-time top tracks (long-term taste)
-//         weight 2 — top tracks from similar artists (discovery with trust)
-//         weight 1 — genre/tag discovery (user's own top tags)
-//    3. Dedup — keep highest-weight copy per track
-//    4. Score — artist familiarity + bucket confidence
-//    5. STAGE 1 FILTER — 3-pass progressive relaxation
-//    6. 60/40 BALANCE — 60% familiar style, 40% discovery
-//    7. Artist diversity — max 2 per artist
-//    8. DOUBLE VALIDATION — re-score, prune hard-rejects + weak matches
-//    9. Cross-session freshness pass
+
 // ══════════════════════════════════════════════════════════════
+//  SMART RECOMMENDATIONS ENGINE — "My Recommendations"
+//  (Create screen → My Recommendations → Generate Playlist.
+//   This is one generation mode among Top/Recent/Similar/Tag/Mix —
+//   not a separate screen or module. Lives here in app.js next to
+//   fetchTopTracks / fetchRecentTracks / fetchMix, same as always.)
+//
+//  Guarantees:
+//    1. Exact requested track count, always — a fixed-order,
+//       7-source pipeline (Similar Tracks → Similar Artists →
+//       Artist Top Tracks → Genre Matches → Tag Matches →
+//       Related Artists → Discovery Pool) runs in widen-and-retry
+//       cycles: while (pool too small) { run pipeline; widen; retry }
+//       up to _RECO_MAX_CYCLES times, then an own-library last
+//       resort guarantees the count regardless.
+//    2. Nothing already heard — recent + all-time top + loved
+//       tracks + everything in the current or any saved playlist.
+//    3. Artist cap (2), best-effort album cap (2, where Last.fm
+//       supplies album data), genre-bucket cap (~35%).
+//    4. Multi-signal scoring: taste match, similarity confidence,
+//       hidden-gem/popularity signal, genre-primary bonus, and a
+//       small exploration factor so regenerations feel fresh.
+//    5. Post-selection genre interleave so one tag doesn't run
+//       back-to-back.
+//
+//  Every cycle logs via _rLog — check Chrome remote debugging
+//  (chrome://inspect) against the device to see pool/fresh counts
+//  per cycle if the exact-count guarantee ever needs auditing.
+// ══════════════════════════════════════════════════════════════
+
+const RECO_DEBUG = true;
+function _rLog(...args) { if (RECO_DEBUG) console.log('%c[Recommendations]', 'color:#8b5cf6', ...args); }
+
+// ── Tunables ────────────────────────────────────────────────────
+const _RECO_MAX_CYCLES      = 5;     // hard ceiling on widen-and-retry cycles
+const _RECO_ARTIST_CAP      = 2;     // max tracks per artist
+const _RECO_ALBUM_CAP       = 2;     // max tracks per album (best-effort — see note above)
+const _RECO_GENRE_CAP_RATIO = 0.35;  // no single genre/tag bucket > 35% of the playlist
+
+/** Compact map of closely-related genres — widens genre discovery
+ *  without drifting away from the user's taste. */
+const _RECO_GENRE_NEIGHBORS = {
+  'indie rock': 'alternative rock', 'alternative rock': 'indie rock',
+  'house': 'deep house', 'deep house': 'tech house', 'tech house': 'techno', 'techno': 'trance',
+  'hip hop': 'rap', 'hip-hop': 'boom bap', 'rap': 'hip hop',
+  'metal': 'heavy metal', 'heavy metal': 'metal', 'black metal': 'doom metal', 'death metal': 'doom metal',
+  'pop': 'indie pop', 'indie pop': 'dream pop', 'dream pop': 'shoegaze', 'shoegaze': 'dream pop',
+  'jazz': 'soul', 'soul': 'r&b', 'r&b': 'neo-soul', 'funk': 'soul',
+  'electronic': 'experimental', 'ambient': 'chillwave', 'lo-fi': 'chillwave', 'chillwave': 'synthwave',
+  'punk': 'post-punk', 'post-punk': 'new wave', 'new wave': 'synth-pop',
+  'folk': 'indie folk', 'indie folk': 'folk', 'country': 'folk',
+  'trap': 'drill', 'drill': 'trap', 'drum and bass': 'jungle', 'jungle': 'drum and bass',
+};
+
+/** Last.fm returns a bare object instead of a 1-item array for some
+ *  endpoints when there's exactly one match. Normalise defensively. */
+function _toArr(x) { return Array.isArray(x) ? x : (x ? [x] : []); }
+
+function _rKey(t) { return `${t.name}|${t.artist}`.toLowerCase(); }
+
+// ══════════════════════════════════════════════════════════════
+//  SCORING — every candidate gets one score from many signals
+// ══════════════════════════════════════════════════════════════
+
+/** Hidden-gem / popularity-penalty signal from Last.fm's global listener count.
+ *  Widened curve — quality goal is "hidden masterpieces", not average songs,
+ *  so true deep cuts are rewarded much more strongly than before, and
+ *  mega-hits are pushed down harder rather than just slightly. */
+function _recoGemScore(track) {
+  const n = parseInt(track.listeners, 10);
+  if (!n || isNaN(n))   return 10;    // popularity unknown — treat as a plausible gem
+  if (n < 3000)         return 36;
+  if (n < 10000)        return 30;
+  if (n < 30000)        return 22;
+  if (n < 100000)       return 12;
+  if (n < 400000)       return 0;
+  if (n < 1500000)      return -14;
+  return -28;
+}
+
+/** Community appreciation — playcount-per-listener ratio. A track that gets
+ *  replayed a lot relative to how many people even found it signals "the
+ *  people who discovered this loved it", independent of raw popularity. */
+function _recoCommunityScore(track) {
+  const listeners = parseInt(track.listeners, 10);
+  const playcount = parseInt(track.playcount, 10);
+  if (!listeners || !playcount || isNaN(listeners) || isNaN(playcount)) return 0;
+  const ratio = playcount / listeners;
+  if (ratio >= 6)  return 14;  // heavily replayed by the people who found it
+  if (ratio >= 3)  return 8;
+  if (ratio >= 1.5) return 3;
+  return 0;
+}
+
+/** track.getsimilar's 0–1 "match" score — the real "audio/community similarity" signal Last.fm exposes. */
+function _recoMatchBonus(track) {
+  const m = parseFloat(track.match);
+  return isNaN(m) ? 0 : Math.round(m * 26);
+}
+
+/**
+ * Combine every available signal into one score.
+ * bucketWeight: 4 mood(recent-similar) / 3 taste(top-similar) /
+ *               2 artist-discovery / 1 genre-discovery
+ * isPrimaryGenre: candidate came from one of the user's own top tags
+ *                 (vs. a "neighbouring" genre reached for variety)
+ * sourceCount:    how many independent sources surfaced this same
+ *                 candidate (e.g. a similar-artist AND a favourite-tag
+ *                 both pointed at it) — strong convergent evidence
+ * isFresh:        hasn't been recommended in a recent session
+ */
+function _recoScore(track, profile, bucketWeight, isPrimaryGenre, sourceCount, isFresh) {
+  let score = 0;
+  const bw = bucketWeight || 1;
+
+  // Discovery-bucket confidence
+  if      (bw >= 4) score += 34;
+  else if (bw >= 3) score += 26;
+  else if (bw >= 2) score += 18;
+
+  // Taste match vs. novelty — an intentional tension: known-artist trust
+  // is rewarded, but a completely new artist gets a novelty nod too, so
+  // the engine doesn't just churn out deep cuts from artists already known.
+  const artistKey = (track.artist || '').toLowerCase();
+  const knownArtist = profile.topArtistNames.has(artistKey) || profile.recentArtists.has(artistKey);
+  if (profile.topArtistNames.has(artistKey)) score += 22;
+  if (profile.recentArtists.has(artistKey))  score += 10;
+  if (!knownArtist) score += 9; // novelty bonus — a genuinely new artist for this user
+  if (isPrimaryGenre) score += 6;
+
+  // Multi-source confirmation — the same track being surfaced by more than
+  // one independent signal (similar-artist AND a favourite tag, say) is
+  // much stronger evidence of fit than any single source alone.
+  if (sourceCount >= 3) score += 18;
+  else if (sourceCount === 2) score += 9;
+
+  // Community/similarity signal + hidden-gem / popularity-penalty signal
+  score += _recoMatchBonus(track);
+  score += _recoGemScore(track);
+  score += _recoCommunityScore(track);
+
+  // Replay-avoidance — continuous, on top of the hard staged filter in
+  // selection, so ranking itself already favours truly-unseen tracks.
+  score += isFresh ? 6 : -20;
+
+  // Small random exploration factor — keeps regenerations feeling
+  // fresh even when scores would otherwise tie every time.
+  score += Math.random() * 6;
+
+  return score;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CANDIDATE SOURCES
+//  Each source is a small async function that ADDS candidates via
+//  `addAll(tracks, weight, tag)`. The engine calls them in a fixed
+//  pipeline order, then widens (deeper pages / new seeds / more
+//  artists+tags) and repeats the whole pipeline if still short.
+// ══════════════════════════════════════════════════════════════
+
+async function _srcSimilarTracks(ctx, cycle) {
+  const pool = cycle === 1 ? ctx.rawProfile.recentTrackSeeds : ctx.rawProfile.topTrackSeeds;
+  const seeds = shuffleArray(pool || []).slice((cycle - 1) * 6, (cycle - 1) * 6 + 6);
+  await Promise.allSettled(seeds.map(async s => {
+    try {
+      const d = await lfmCall({ method: 'track.getsimilar', track: s.name, artist: s.artist, limit: 30 });
+      ctx.addAll(normaliseTracks(d.similartracks?.track), cycle === 1 ? 4 : 3, cycle === 1 ? 'mood' : 'taste');
+    } catch {}
+  }));
+}
+
+async function _srcSimilarArtists(ctx, cycle) {
+  const artists = shuffleArray([...ctx.profile.topArtistNames]).slice((cycle - 1) * 6, (cycle - 1) * 6 + 6);
+  await Promise.allSettled(artists.map(async artistName => {
+    try {
+      const d = await lfmCall({ method: 'artist.getsimilar', artist: artistName, limit: 20 });
+      const sims = shuffleArray(_toArr(d.similarartists?.artist));
+      for (const sa of sims.slice(0, 5)) {
+        const ak = sa.name.toLowerCase();
+        if (ctx.exploredArtists.has(ak)) continue;
+        ctx.exploredArtists.add(ak);
+        ctx.pendingArtists.push(sa.name);
+      }
+    } catch {}
+  }));
+}
+
+async function _srcArtistTopTracks(ctx) {
+  const batch = ctx.pendingArtists.splice(0, 12); // consume artists discovered by _srcSimilarArtists
+  await Promise.allSettled(batch.map(async artistName => {
+    try {
+      const page = Math.ceil(Math.random() * 6); // skip page 1 megahits sometimes — hidden-gem bias
+      const d    = await lfmCall({ method: 'artist.gettoptracks', artist: artistName, limit: 10, page });
+      ctx.addAll(normaliseTracks(d.toptracks?.track), 2, `artist:${artistName.toLowerCase()}`);
+    } catch {}
+  }));
+}
+
+async function _srcGenreMatches(ctx, cycle) {
+  const tags = shuffleArray(ctx.profile.topTags).slice((cycle - 1) * 4, (cycle - 1) * 4 + 4);
+  await Promise.allSettled(tags.map(async tag => {
+    ctx.exploredTags.add(tag);
+    try {
+      const page = Math.floor(Math.random() * 10) + 2; // pages 2–11: past the obvious chart-toppers
+      const d    = await lfmCall({ method: 'tag.gettoptracks', tag, limit: Math.ceil(ctx.total * 0.4), page });
+      ctx.addAll(normaliseTracks(d.tracks?.track), 1, `tag:${tag}`, true);
+    } catch {}
+  }));
+}
+
+async function _srcTagMatches(ctx) {
+  // Neighbouring/related genres — cohesive variety beyond the user's exact top tags
+  const tags = [...ctx.exploredTags].map(t => _RECO_GENRE_NEIGHBORS[t]).filter(Boolean);
+  const unique = [...new Set(tags)].filter(t => !ctx.exploredTags.has(t)).slice(0, 4);
+  await Promise.allSettled(unique.map(async tag => {
+    ctx.exploredTags.add(tag);
+    try {
+      const page = Math.floor(Math.random() * 6) + 1;
+      const d    = await lfmCall({ method: 'tag.gettoptracks', tag, limit: Math.ceil(ctx.total * 0.3), page });
+      ctx.addAll(normaliseTracks(d.tracks?.track), 1, `tag:${tag}`, false);
+    } catch {}
+  }));
+}
+
+async function _srcRelatedArtists(ctx, cycle) {
+  // 2-hop discovery: similar artists of artists already explored this session
+  const seedArtists = shuffleArray([...ctx.exploredArtists]).slice(0, 4);
+  await Promise.allSettled(seedArtists.map(async artistName => {
+    try {
+      const d    = await lfmCall({ method: 'artist.getsimilar', artist: artistName, limit: 15 });
+      const sims = shuffleArray(_toArr(d.similarartists?.artist));
+      for (const sa of sims) {
+        const ak = sa.name.toLowerCase();
+        if (ctx.exploredArtists.has(ak)) continue;
+        ctx.exploredArtists.add(ak);
+        ctx.pendingArtists.push(sa.name);
+      }
+    } catch {}
+  }));
+  await _srcArtistTopTracks(ctx);
+}
+
+async function _srcDiscoveryPool(ctx) {
+  // Brute-force supply net: the user's own wider top-artist catalogue,
+  // deep pages only, so it still favours lesser-known songs over hits.
+  const wide = shuffleArray([...ctx.profile.topArtistNames]);
+  await Promise.allSettled(wide.map(async artistName => {
+    try {
+      const page = Math.ceil(Math.random() * 8);
+      const d    = await lfmCall({ method: 'artist.gettoptracks', artist: artistName, limit: 15, page });
+      ctx.addAll(normaliseTracks(d.toptracks?.track), 2, `artist:${artistName.toLowerCase()}`);
+    } catch {}
+  }));
+}
+
+// Fixed pipeline order, run every cycle. Widening happens by re-running
+// the same sources with fresh seeds/pages/artists (cycle-dependent slices).
+const _RECO_PIPELINE = [
+  _srcSimilarTracks,
+  _srcSimilarArtists,
+  _srcArtistTopTracks,
+  _srcGenreMatches,
+  _srcTagMatches,
+  _srcRelatedArtists,
+  _srcDiscoveryPool,
+];
+
+// ══════════════════════════════════════════════════════════════
+//  SELECTION — staged relaxation, guarantees the exact count
+// ══════════════════════════════════════════════════════════════
+
+function _recoSelectFinal(scored, total) {
+  const genreCap = Math.max(2, Math.ceil(total * _RECO_GENRE_CAP_RATIO));
+
+  function attempt({ artistCap, albumCapOn, genreCapOn, freshOnly }) {
+    const artistCount = {};
+    const albumCount  = {};
+    const genreCount  = {};
+    const pickedKeys  = new Set();
+    const picked      = [];
+    for (const c of scored) {
+      const key = _rKey(c.track);
+      if (pickedKeys.has(key)) continue;
+      if (freshOnly && !c.fresh) continue;
+      const ak = (c.track.artist || '').toLowerCase();
+      if ((artistCount[ak] || 0) >= artistCap) continue;
+      if (albumCapOn && c.track.album) {
+        const alK = c.track.album.toLowerCase();
+        if ((albumCount[alK] || 0) >= _RECO_ALBUM_CAP) continue;
+      }
+      if (genreCapOn) {
+        const genreTag = [...c.tags].find(t => t.startsWith('tag:'));
+        if (genreTag) {
+          if ((genreCount[genreTag] || 0) >= genreCap) continue;
+          genreCount[genreTag] = (genreCount[genreTag] || 0) + 1;
+        }
+      }
+      artistCount[ak] = (artistCount[ak] || 0) + 1;
+      if (c.track.album) {
+        const alK = c.track.album.toLowerCase();
+        albumCount[alK] = (albumCount[alK] || 0) + 1;
+      }
+      pickedKeys.add(key);
+      picked.push(c.track);
+      if (picked.length >= total) break;
+    }
+    return picked;
+  }
+
+  // Stage 1 — full diversity + freshness (ideal case)
+  let result = attempt({ artistCap: _RECO_ARTIST_CAP, albumCapOn: true, genreCapOn: true, freshOnly: true });
+  // Stage 2 — allow tracks recommended in a past session
+  if (result.length < total) result = attempt({ artistCap: _RECO_ARTIST_CAP, albumCapOn: true, genreCapOn: true, freshOnly: false });
+  // Stage 3 — relax artist cap slightly
+  if (result.length < total) result = attempt({ artistCap: 3, albumCapOn: true, genreCapOn: true, freshOnly: false });
+  // Stage 4 — relax genre balance
+  if (result.length < total) result = attempt({ artistCap: 3, albumCapOn: true, genreCapOn: false, freshOnly: false });
+  // Stage 5 — relax album balance
+  if (result.length < total) result = attempt({ artistCap: 3, albumCapOn: false, genreCapOn: false, freshOnly: false });
+  // Stage 6 — take whatever unique candidates remain
+  if (result.length < total) result = attempt({ artistCap: 99, albumCapOn: false, genreCapOn: false, freshOnly: false });
+
+  return result;
+}
+
+/** Round-robin re-order by genre bucket so the same tag never plays
+ *  twice in a row when it can be avoided (post-selection, doesn't
+ *  change *which* tracks were picked — only their play order). */
+function _recoInterleave(tracks, tagsByKey) {
+  const buckets = new Map(); // bucket label -> queue of tracks
+  for (const t of tracks) {
+    const tags = tagsByKey.get(_rKey(t));
+    const genreTag = tags ? [...tags].find(x => x.startsWith('tag:')) : null;
+    const label = genreTag || 'other';
+    if (!buckets.has(label)) buckets.set(label, []);
+    buckets.get(label).push(t);
+  }
+  const queues = [...buckets.values()];
+  const out = [];
+  let lastLabel = null;
+  while (out.length < tracks.length) {
+    // pick the queue that isn't the same as the last-picked label, if possible
+    let pickedIdx = queues.findIndex((q, i) => q.length && buckets_label(buckets, i) !== lastLabel);
+    if (pickedIdx === -1) pickedIdx = queues.findIndex(q => q.length);
+    if (pickedIdx === -1) break;
+    const track = queues[pickedIdx].shift();
+    out.push(track);
+    lastLabel = buckets_label(buckets, pickedIdx);
+  }
+  return out;
+  function buckets_label(map, idx) { return [...map.keys()][idx]; }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MAIN ENTRY POINT
+// ══════════════════════════════════════════════════════════════
+
 async function fetchRecommendations(total) {
   setLoadingText('Building your taste profile\u2026');
   const rawProfile = await _buildUserTasteProfile();
-  const profile    = _hydrateProfile(rawProfile);
+  const profile     = _hydrateProfile(rawProfile);
 
-  const weighted = []; // { track, weight }
-  const push     = (tracks, w) => tracks.forEach(t => weighted.push({ track: t, weight: w }));
+  // ── Hard blacklist — anything the user has actually heard, plus
+  // everything already in a saved/generated playlist ─────────────
+  const blacklist = new Set([...profile.recentTrackKeys, ...profile.topTrackKeys]);
+  try {
+    const lovedRes = await lfmCall({ method: 'user.getlovedtracks', user: state.username, limit: 200 });
+    normaliseTracks(lovedRes?.lovedtracks?.track).forEach(t => blacklist.add(_rKey(t)));
+  } catch {}
+  try {
+    (typeof _plLoad === 'function' ? _plLoad() : []).forEach(pl => {
+      (pl.tracks || []).forEach(t => { if (t?.name && t?.artist) blacklist.add(_rKey(t)); });
+    });
+  } catch {}
+  (state.playlist || []).forEach(t => { if (t?.name && t?.artist) blacklist.add(_rKey(t)); });
 
-  // ── Phase 1 (parallel): recent-mood seeds + long-term seeds ──
-  setLoadingText('Reading your listening mood\u2026');
-  await Promise.allSettled([
+  _rLog(`target=${total}, blacklist size=${blacklist.size}`);
 
-    // Bucket A  weight:4 — similar to recent plays (highest: current mood)
-    (async () => {
-      try {
-        const seeds = shuffleArray(rawProfile.recentTrackSeeds || []).slice(0, 6);
-        await Promise.allSettled(seeds.map(async s => {
-          try {
-            const d = await lfmCall({ method: 'track.getsimilar', track: s.name, artist: s.artist, limit: 30 });
-            push(normaliseTracks(d.similartracks?.track), 4);
-          } catch {}
-        }));
-      } catch {}
-    })(),
+  // Session freshness — avoid repeating what was recommended recently
+  const seenMap = _getSeenMap();
+  const now     = Date.now();
+  const isFresh = (key) => { const ts = seenMap[key]; return !ts || (now - ts) > _SEEN_TTL; };
 
-    // Bucket B  weight:3 — similar to all-time top tracks (long-term taste)
-    (async () => {
-      try {
-        const seeds = shuffleArray(rawProfile.topTrackSeeds || []).slice(0, 5);
-        await Promise.allSettled(seeds.map(async s => {
-          try {
-            const d = await lfmCall({ method: 'track.getsimilar', track: s.name, artist: s.artist, limit: 25 });
-            push(normaliseTracks(d.similartracks?.track), 3);
-          } catch {}
-        }));
-      } catch {}
-    })(),
-  ]);
+  // Candidate pool — key "name|artist" → { track, weight, tags:Set }
+  const pool = new Map();
+  const addAll = (tracks, weight, tag, isPrimaryGenre) => {
+    for (const t of (tracks || [])) {
+      if (!t?.name || !t?.artist) continue;
+      const key = _rKey(t);
+      if (blacklist.has(key)) continue;
+      const cur = pool.get(key);
+      if (cur) { if (weight > cur.weight) cur.weight = weight; cur.tags.add(tag); }
+      else pool.set(key, { track: t, weight, tags: new Set([tag]), isPrimaryGenre: !!isPrimaryGenre });
+    }
+  };
 
-  // ── Phase 2 (parallel per artist): similar artists → their tracks ──
-  setLoadingText('Discovering artists you\u2019ll love\u2026');
-  const topArtistList = shuffleArray([...profile.topArtistNames]).slice(0, 6);
-  await Promise.allSettled(topArtistList.map(async artistName => {
-    try {
-      const simD       = await lfmCall({ method: 'artist.getsimilar', artist: artistName, limit: 15 });
-      const simArtists = shuffleArray(simD.similarartists?.artist || []).slice(0, 4);
-      await Promise.allSettled(simArtists.map(async sa => {
-        try {
-          const page = Math.ceil(Math.random() * 4);
-          const d    = await lfmCall({ method: 'artist.gettoptracks', artist: sa.name, limit: 10, page });
-          push(normaliseTracks(d.toptracks?.track), 2);
-        } catch {}
-      }));
-    } catch {}
-  }));
+  const ctx = {
+    total, rawProfile, profile, addAll,
+    exploredArtists: new Set(),
+    exploredTags:    new Set(),
+    pendingArtists:  [],
+  };
 
-  // ── Phase 3 (parallel): genre/tag discovery ──────────────────
-  if (profile.topTags.length > 0) {
-    setLoadingText('Exploring your favourite genres\u2026');
-    const tagCount = Math.min(4, profile.topTags.length);
-    await Promise.allSettled(shuffleArray(profile.topTags).slice(0, tagCount).map(async tag => {
-      try {
-        const page = Math.floor(Math.random() * 8) + 1;
-        const d    = await lfmCall({ method: 'tag.gettoptracks', tag, limit: Math.ceil(total * 0.35), page });
-        push(normaliseTracks(d.tracks?.track), 1);
-      } catch {}
-    }));
+  // ── Run the full pipeline; widen and repeat while short ────────
+  let cycle = 1;
+  while (cycle <= _RECO_MAX_CYCLES) {
+    setLoadingText(cycle === 1
+      ? 'Reading your listening mood\u2026'
+      : `Digging deeper for more discoveries (round ${cycle})\u2026`);
+
+    for (const source of _RECO_PIPELINE) {
+      await source(ctx, cycle);
+    }
+
+    const freshCount = [...pool.keys()].filter(isFresh).length;
+    _rLog(`cycle ${cycle}: pool=${pool.size} unique, fresh=${freshCount}, need~${Math.ceil(total * 1.6)}`);
+
+    if (pool.size >= total * 1.6 || freshCount >= total * 1.4) break;
+    cycle++;
   }
 
   setLoadingText('Curating your personal recommendations\u2026');
 
-  // ── Dedup — keep highest-weight copy per unique track ─────────
-  const seenWt  = new Map();
-  const trackOf = new Map();
-  for (const { track, weight } of weighted) {
-    if (!track?.name || !track?.artist) continue;
-    const k = `${track.name}|${track.artist}`.toLowerCase();
-    if (!seenWt.has(k) || weight > seenWt.get(k)) {
-      seenWt.set(k, weight);
-      trackOf.set(k, track);
+  // ── Score every candidate ──────────────────────────────────────
+  const scored = [...pool.values()].map(({ track, weight, tags, isPrimaryGenre }) => {
+    const fresh = isFresh(_rKey(track));
+    return {
+      track, weight, tags, fresh,
+      score: _recoScore(track, profile, weight, isPrimaryGenre, tags.size, fresh),
+    };
+  });
+  scored.sort((a, b) => (b.fresh - a.fresh) || (b.score - a.score));
+
+  // ── Select with staged relaxation until `total` is reached ─────
+  let final = _recoSelectFinal(scored, total);
+  _rLog(`selected ${final.length}/${total} from candidate pool`);
+
+  // ── Absolute last resort ────────────────────────────────────────
+  // Only triggers when Last.fm's candidate pool itself is smaller
+  // than `total` unique unheard tracks (a very sparse/new account).
+  // The exact-count rule outranks discovery-purity here.
+  if (final.length < total) {
+    _rLog(`WARNING: pool too small, filling ${total - final.length} slot(s) from the user's own library as a last resort`);
+    const usedKeys = new Set(final.map(_rKey));
+    const backup = [...rawProfile.topTrackSeeds, ...rawProfile.recentTrackSeeds]
+      .map(s => ({ name: s.name, artist: s.artist, url: '', image: '' }));
+    for (const t of backup) {
+      if (final.length >= total) break;
+      const k = _rKey(t);
+      if (usedKeys.has(k)) continue;
+      usedKeys.add(k);
+      final.push(t);
     }
   }
 
-  const dedupedWeighted = [...seenWt.entries()].map(([k, w]) => ({
-    track: trackOf.get(k), weight: w
-  }));
+  final = deduplicateTracks(final).slice(0, total);
 
-  // ── Score every candidate ─────────────────────────────────────
-  const scored = _scoreTrackArray(dedupedWeighted, profile);
+  // ── Interleave so the same genre bucket doesn't repeat back-to-back
+  const tagsByKey = new Map(scored.map(c => [_rKey(c.track), c.tags]));
+  final = _recoInterleave(final, tagsByKey);
 
-  // ── STAGE 1 FILTER — 3-pass progressive relaxation ───────────
-  // Pass 1: strict — score ≥ 30 (needs bucket ≥ 2 OR one artist match)
-  let filtered = _tasteFilter(scored, 30);
-
-  // Pass 2: relax if pool is thin
-  if (filtered.length < Math.ceil(total * 0.65)) {
-    filtered = _tasteFilter(scored, 10);
+  // ── Playlist flow — open and close on the strongest, most-confident
+  // tracks so the playlist feels intentional rather than shuffled.
+  // The middle keeps the genre-interleaved discovery variety as-is.
+  if (final.length >= 3) {
+    const scoreByKey = new Map(scored.map(c => [_rKey(c.track), c.score]));
+    const order = [...final].sort((a, b) => (scoreByKey.get(_rKey(b)) || 0) - (scoreByKey.get(_rKey(a)) || 0));
+    const opener = order[0];
+    const closer = order.find(t => _rKey(t) !== _rKey(opener)) || order[1];
+    final = final.filter(t => _rKey(t) !== _rKey(opener) && _rKey(t) !== _rKey(closer));
+    final = [opener, ...final, closer];
   }
 
-  // Pass 3: supplement with highest-scoring non-recent if still thin
-  if (filtered.length < Math.ceil(total * 0.5)) {
-    const fKeys = new Set(filtered.map(({ track }) => `${track.name}|${track.artist}`.toLowerCase()));
-    const supplements = scored
-      .filter(({ score, track }) => score !== -1 && !fKeys.has(`${track.name}|${track.artist}`.toLowerCase()))
-      .sort((a, b) => b.score - a.score);
-    filtered = [...filtered, ...supplements];
+  _rLog(`FINAL: ${final.length}/${total} tracks returned`);
+  if (final.length !== total) {
+    console.warn(`[Recommendations] Could not reach the exact requested count. Returned ${final.length} of ${total}. This only happens when the Last.fm account has fewer unique unheard tracks available than requested.`);
   }
 
-  // Sort by score descending — most relevant first
-  filtered.sort((a, b) => b.score - a.score);
-
-  // ── 60/40 BALANCE: familiar style vs discovery ────────────────
-  // Familiar = weight ≥ 3 (similar to tracks user actually listened to)
-  // Discovery = weight ≤ 2 (similar artists, genre exploration)
-  const familiarTarget  = Math.ceil(total * 0.60);
-  const discoveryTarget = Math.floor(total * 0.40);
-
-  const familiarPool   = filtered.filter(({ weight }) => weight >= 3);
-  const discoveryPool  = filtered.filter(({ weight }) => weight <= 2);
-
-  let balanced = [
-    ...familiarPool.slice(0, familiarTarget),
-    ...discoveryPool.slice(0, discoveryTarget),
-  ];
-
-  // If either pool was short, fill the gap from whatever's left
-  if (balanced.length < total) {
-    const bKeys = new Set(balanced.map(({ track }) => `${track.name}|${track.artist}`.toLowerCase()));
-    const extras = filtered.filter(({ track }) =>
-      !bKeys.has(`${track.name}|${track.artist}`.toLowerCase())
-    );
-    balanced = [...balanced, ...extras];
-  }
-
-  // ── Artist diversity: max 2 tracks per artist ─────────────────
-  const artistCount = {};
-  const diverse = balanced
-    .map(({ track }) => track)
-    .filter(t => {
-      const k = (t.artist || '').toLowerCase();
-      artistCount[k] = (artistCount[k] || 0) + 1;
-      return artistCount[k] <= 2;
-    });
-
-  // ── DOUBLE VALIDATION PASS ────────────────────────────────────
-  // Re-score the diverse set against the full profile. This catches
-  // any track that slipped through scoring with the wrong weight.
-  const reScored = _scoreTrackArray(
-    diverse.map(t => ({
-      track: t,
-      weight: seenWt.get(`${t.name}|${t.artist}`.toLowerCase()) || 1,
-    })),
-    profile
-  );
-
-  // Always remove hard-rejects (recently played)
-  let validated = reScored.filter(({ score }) => score !== -1);
-
-  // If pool is generous, also prune genuinely irrelevant tracks (score 0)
-  if (validated.length > Math.ceil(total * 1.4)) {
-    validated = validated.filter(({ score }) => score > 0);
-  }
-
-  // Extract track objects
-  const validatedTracks = validated.map(({ track }) => track);
-
-  // ── Cross-session freshness pass ──────────────────────────────
-  const fresh  = _filterFresh(validatedTracks);
-  const result = (fresh.length >= Math.min(total, 8) ? fresh : validatedTracks).slice(0, total);
-
-  return deduplicateTracks(result);
+  return final;
 }
 
 async function fetchMix(total) {
@@ -1814,10 +2116,18 @@ function normaliseTracks(tracks) {
       t.image.find(i => _isRealImg(i['#text']))
     );
     return {
-      name:   t.name,
-      artist: t.artist ? (typeof t.artist === 'string' ? t.artist : (t.artist.name || t.artist['#text'] || '')) : '',
-      url:    t.url || '',
-      image:  imgEntry?.['#text'] || ''
+      name:      t.name,
+      artist:    t.artist ? (typeof t.artist === 'string' ? t.artist : (t.artist.name || t.artist['#text'] || '')) : '',
+      url:       t.url || '',
+      image:     imgEntry?.['#text'] || '',
+      // Extra signals (may be absent depending on endpoint) — used by the
+      // recommendations engine for hidden-gem / similarity / album-diversity
+      // scoring only. Last.fm does not include album on every endpoint —
+      // this is best-effort, present when the source endpoint supplies it.
+      listeners: t.listeners ?? null,
+      playcount: t.playcount ?? null,
+      match:     t.match ?? null,
+      album:     t.album ? (typeof t.album === 'string' ? t.album : (t.album['#text'] || t.album.title || '')) : '',
     };
   });
 }

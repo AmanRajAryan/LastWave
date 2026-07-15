@@ -6,9 +6,12 @@
 
 'use strict';
 
-// Bump this whenever CSS/HTML assets change, so the WebView's disk cache
-// (which persists across app reinstalls) never serves a stale stylesheet.
-const BUILD_VERSION = '3';
+// Bump this whenever ANY screen asset changes — CSS, HTML, or JS — so the
+// WebView's disk cache (which persists across app reinstalls) never serves
+// a stale file. Previously only applied to CSS; HTML/JS had no cache-busting
+// at all, which could silently keep old generation logic running after a
+// rebuild even though the source file on disk was already fixed.
+const BUILD_VERSION = '7';
 
 const PAGE_TITLES = {
   home:      'LastWave',
@@ -90,7 +93,7 @@ async function navigateTo(page, opts) {
     
     let htmlText = '';
     try {
-      const res = await _fetchWithTimeout(`${page}/${page}.html`, 8000);
+      const res = await _fetchWithTimeout(`${page}/${page}.html?v=${BUILD_VERSION}`, 8000);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       htmlText = await res.text();
     } catch (e) {
@@ -117,7 +120,7 @@ async function navigateTo(page, opts) {
     if (!document.querySelector(`script[data-screen="${page}"]`)) {
       await new Promise(resolve => {
         const script = document.createElement('script');
-        script.src = `${page}/${page}.js`;
+        script.src = `${page}/${page}.js?v=${BUILD_VERSION}`;
         script.dataset.screen = page;
         script.onload  = resolve;
         script.onerror = () => { console.error(`[nav] Failed to load ${page}.js`); resolve(); };
