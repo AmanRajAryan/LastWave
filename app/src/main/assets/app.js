@@ -54,162 +54,105 @@ const LASTFM_BASE   = 'https://ws.audioscrobbler.com/2.0/';
 const DEEP_LINK_CB  = 'lastwave://auth';   // must match AndroidManifest intent-filter
 
 // ══════════════════════════════════════════════════════════════
-//  PLAYLIST NAMING SYSTEM  v3
-//  Every playlist gets a unique SINGLE-WORD aesthetic name.
-//  Rules: one word, no spaces, inspired by genre/artist/vibe.
-//  Optional subtitle: "Genre Mix · House", "Track Mix · Recent"
+//  PLAYLIST NAMING SYSTEM  v4
+//  Every playlist gets a unique, premium-feeling 1–3 word name,
+//  assembled from large adjective/noun word banks spanning colors,
+//  weather, light, mood, space, nature, mythology, and time — e.g.
+//  "Velvet Horizon", "Neon Mirage", "Arctic Dreams", "Silent Orbit".
+//  Names are checked against every saved playlist title; if a
+//  generated name is already taken, a new one is composed from the
+//  same banks until a unique one is found. Numbers are never used.
+//  Optional subtitle (unaffected by this system): see
+//  _generatePlaylistSubtitle() below — "Genre Mix · House", etc.
 // ══════════════════════════════════════════════════════════════
 
-/** Single-word name pools keyed by genre/tag (lowercase) */
-const _SW_GENRE_NAMES = {
-  'house':             ['Zenvy','Lumora','Neonix','Auralis','Vortiq','Phlox','Vaelx','Echon','Lavix','Grooviq'],
-  'deep house':        ['Lumora','Zenvy','Dusqk','Echon','Vaelx','Solmn','Depthiq','Bassiq'],
-  'tech house':        ['Kryth','Axion','Grydz','Nulvex','Ferric','Steelx','Vortiq','Mechiq'],
-  'techno':            ['Kryth','Vortiq','Steelx','Grydz','Axion','Ferric','Voltz','Nulvex','Mechiq'],
-  'trance':            ['Auralis','Lumora','Wavex','Neonix','Zenvy','Uplftiq','Melodiq','Ascndx'],
-  'dubstep':           ['Woblix','Bassiq','Dropvx','Surgeq','Heavyx','Mechiq','Khaos','Wobbiq'],
-  'future bass':       ['Florix','Cloudiq','Melliq','Driftx','Prismiq','Zenvy','Softiq'],
-  'chillstep':         ['Driftz','Floatiq','Wavex','Solmn','Haezu','Velour','Quietx'],
-  'chillwave':         ['Haezu','Retrovx','Beachiq','Warmth','Driftz','Suniq','Softx'],
-  'ambient':           ['Lumora','Driftz','Velour','Haezu','Zephyr','Solum','Limnal','Quietx'],
-  'dark ambient':      ['Voidx','Solmn','Shadiq','Murkx','Abyssq','Noctx','Grymiq','Depthx'],
-  'drum and bass':     ['Klyxe','Neuron','Vertic','Khaos','Drevix','Traxon','Bassiq','Rythmx'],
-  "drum'n'bass":       ['Klyxe','Neuron','Vertic','Khaos','Drevix','Traxon','Rythmx'],
-  'dnb':               ['Klyxe','Neuron','Bassiq','Traxon','Khaos','Drevix'],
-  'jungle':            ['Pressiq','Groovx','Traxon','Klyxe','Ruggedx','Deepiq'],
-  'breakcore':         ['Khaos','Fractr','Noisex','Glitcx','Shatrd','Cripx','Rigidx'],
-  'phonk':             ['Dazegxd','Grymz','Wraith','Noxiq','Skygx','Dusqk','Slyxe','Gravix'],
-  'memphis rap':       ['Grymz','Dusqk','Shadowx','Undergx','Mistiq','Driftz'],
-  'lo-fi':             ['Haezu','Velour','Limnal','Solmn','Driftz','Lumix','Wistl','Calmx'],
-  'lofi':              ['Haezu','Velour','Limnal','Solmn','Driftz','Wistl'],
-  'lofi hip hop':      ['Haezu','Limnal','Wistl','Calmx','Solmn','Studiq'],
-  'synthwave':         ['Neonix','Auralis','Vektrix','Retrovx','Primax','Chromix','Solaris','Wavex'],
-  'vaporwave':         ['Lumora','Neonix','Pastlx','Chromix','Retrovx','Mistiq','Haezu','Malliq'],
-  'hyperpop':          ['Glitcx','Voltx','Primax','Vivix','Surgeq','Neoniq','Burstx','Chrmax'],
-  'trap':              ['Slyxe','Gravix','Duskx','Wraith','Noxiq','Grydz','Drazx','Vaultx'],
-  'trap metal':        ['Ironx','Khaos','Surgeq','Heavyx','Rageix','Voltx','Noisex'],
-  'hip-hop':           ['Glyph','Krypt','Versse','Flowx','Lyrix','Versic','Grymz','Barz'],
-  'hip hop':           ['Glyph','Krypt','Versse','Flowx','Lyrix','Versic','Grymz','Barz'],
-  'rap':               ['Barz','Versse','Lyrix','Krypt','Grymz','Spitiq','Flowx','Cypher'],
-  'boom bap':          ['Vinylx','Krypt','Barz','Groovx','Beatiq','Classiq','Rhythmq'],
-  'cloud rap':         ['Ethrix','Skyiq','Cloudx','Driftz','Vaelx','Haezu','Mistiq'],
-  'drill':             ['Drazx','Pressiq','Darkiq','Roadx','Khaos','Noxiq','Stormiq'],
-  'uk drill':          ['Roadx','Gritiq','Londx','Drazx','Pressiq','Darkiq'],
-  'grime':             ['Grimsq','Beatiq','Pressiq','Voltx','Rawvx','Londx'],
-  'rock':              ['Voltx','Riffix','Stonex','Crysh','Boltx','Grydz','Clashx','Rawvx'],
-  'indie rock':        ['Wavex','Statiq','Gritiq','Softx','Wistl','Limnal','Garageq'],
-  'alternative':       ['Altrix','Wavex','Outsidx','Leftiq','Edgeiq','Distinx'],
-  'alternative rock':  ['Altrix','Wavex','Edgeiq','Distinx','Outsidx'],
-  'metal':             ['Ironx','Forgex','Crysh','Voltx','Khaos','Ferric','Brutx','Axiom'],
-  'heavy metal':       ['Ironx','Forgex','Crysh','Voltx','Khaos','Ferric','Brutx'],
-  'black metal':       ['Frostiq','Kvltx','Tremlq','Abyss','Noctx','Coldiq','Darkiq'],
-  'death metal':       ['Brutx','Riffiq','Slamiq','Vileiq','Goriq','Deathiq'],
-  'doom metal':        ['Crushx','Heavyx','Slowiq','Funerx','Sludgiq','Mourniq'],
-  'post-metal':        ['Driftz','Slowiq','Sludgiq','Atmosq','Endlsiq'],
-  'sludge metal':      ['Sludgiq','Crushx','Murkx','Heavyx','Feedbq'],
-  'punk':              ['Rawvx','Noisex','Riotx','Clashx','Furyx','Grydz','Brevix','Spikx'],
-  'hardcore':          ['Furyx','Moshiq','Fastiq','Riotx','Rawvx','Chainx','Loudiq'],
-  'post-hardcore':     ['Surgex','Emotiq','Chaosx','Tensniq'],
-  'emo':               ['Brokix','Choriq','Sadgix','Midniq','Feltiq','Tearx'],
-  'shoegaze':          ['Haezu','Driftz','Velour','Mistiq','Blurx','Wavex','Revrix'],
-  'post-rock':         ['Horizx','Vastx','Epochx','Driftx','Limnal','Crestx','Endlsiq'],
-  'math rock':         ['Polyiq','Rhythmq','Metrix','Complexx','Signiq','Timix'],
-  'pop':               ['Glimx','Lumora','Neonix','Velvx','Echon','Primax','Sparkx','Vivix'],
-  'indie pop':         ['Wistl','Softx','Gardniq','Daisiq','Warmth','Suniq','Gentl'],
-  'dream pop':         ['Driftz','Stariq','Luminq','Haezu','Floatiq','Softx','Dreamy'],
-  'electropop':        ['Vivix','Neonix','Primax','Pulsix','Glimx','Chrmax'],
-  'synth-pop':         ['Chromix','Synthiq','Coldiq','Retrovx','Wavex','Digitiq'],
-  'jazz':              ['Solmn','Velour','Lumix','Haezu','Sable','Smoqe','Noctx','Jazziq'],
-  'soul':              ['Velour','Warmth','Glowx','Echon','Sable','Depthx','Souliq'],
-  'r&b':               ['Velour','Sable','Lumora','Echon','Haezu','Smoothx','Glowx','Noctx'],
-  'neo-soul':          ['Warmth','Velour','Souliq','Smoothx','Nuiq','Moderniq'],
-  'funk':              ['Groovx','Pocketiq','Bassiq','Funkiq','Rhythmq','Groveiq'],
-  'classical':         ['Grandr','Majestx','Cadenz','Orchx','Elegy','Sonix','Etrniq'],
-  'cinematic':         ['Epiqx','Scorniq','Storyq','Dramatiq','Vastx','Scorix'],
-  'ost':               ['Scorix','Epiqx','Stageix','Dramatiq','Scorniq'],
-  'reggae':            ['Rootsx','Islex','Breezx','Vibex','Groovx','Islmx','Chillx'],
-  'dub':               ['Reverbx','Rootsx','Deepiq','Bassiq','Meditq'],
-  'folk':              ['Wistl','Earthx','Softx','Gentl','Rootsx','Warmth','Fireiq'],
-  'indie folk':        ['Wistl','Earthx','Campiq','Woodiq','Softx','Strumq'],
-  'country':           ['Roadix','Twangiq','Heartix','Rootsx','Warmth','Soiliq'],
-  'blues':             ['Deltax','Lowdwn','Smokex','Rawvx','Depthx','Dusqk','Rootsx'],
-  'electronic':        ['Axion','Vortiq','Kryth','Nulvex','Synxiq','Phrex','Corex','Neuron'],
-  'experimental':      ['Voidx','Fractr','Glitcx','Limnal','Nulvex','Corex','Morphx','Abstrx'],
-  'noise':             ['Staticx','Walliq','Noisex','Abrasiq','Rawvx','Harshnq'],
-  'industrial':        ['Machiq','Steelx','Coldiq','Grydz','Ferric','Metaliq','Factoriq'],
-  'gothic':            ['Shadiq','Noctx','Darkiq','Cathediq','Echon','Abyssq'],
-  'new wave':          ['Coldiq','Postiq','Wavex','Chromix','Statiq','Elegiq'],
-  'post-punk':         ['Coldiq','Postiq','Rawvx','Tensiq','Jaggedq','Darkiq'],
-  'psychedelic':       ['Kaleidiq','Expandx','Prismiq','Voidx','Tripiq','Cosmiq'],
-  'krautrock':         ['Motoriq','Kosmiq','Repetiq','Machinx','Loopiq'],
-  'bossa nova':        ['Sambiq','Breezx','Warmth','Suniq','Islex','Tropiq'],
-  'flamenco':          ['Passiq','Flamiq','Firix','Spainx','Ardorx'],
-  'world':             ['Globiq','Worldiq','Journx','Culturx','Rootsx'],
-  'afrobeats':         ['Lagosx','Groovx','Pulsix','Afroiq','Beatiq','Rhythmq'],
-  'kpop':              ['Stariq','Neonix','Shiniq','Vivix','Glimx','Popiq'],
-  'j-pop':             ['Tokyoiq','Neonix','Softx','Kawaiiq','Popiq'],
-  'j-rock':            ['Tokyoiq','Energiq','Viziq','Rockiq','Rawvx'],
-  'anime':             ['Animeiq','Otakuiq','Stageix','Sereniq','Heroiq'],
-};
-
-/** Fallback single-word pool for unknown genres or generic use */
-const _SW_FALLBACK_NAMES = [
-  'Velvet','Echo','Dusk','Ember','Nova','Pulse','Wave','Storm',
-  'Bloom','Drift','Haze','Peak','Glow','Frost','Vibe','Tide',
-  'Lush','Mist','Flare','Shade','Crest','Amber','Lunar','Solar',
-  'Calm','Stark','Blaze','Crisp','Slate','Breve',
+/** Adjective bank — colors, weather/light, mood, space/time. */
+const _NAME_ADJECTIVES = [
+  // colors
+  'Crimson','Violet','Amber','Emerald','Sapphire','Scarlet','Ivory','Obsidian',
+  'Cobalt','Copper','Golden','Silver','Jade','Ruby','Indigo','Pearl',
+  // weather / light
+  'Electric','Radiant','Frozen','Stormy','Misty','Blazing','Frosted','Luminous',
+  'Fading','Glowing','Shimmering','Windswept','Sunlit','Moonlit','Hazy','Rainswept',
+  // mood
+  'Silent','Restless','Wild','Faded','Quiet','Wistful','Feral','Serene',
+  'Fractured','Wandering','Distant','Hollow','Tender','Bold','Gentle','Dreamy',
+  // space / time
+  'Midnight','Lunar','Solar','Arctic','Celestial','Nocturnal','Endless','Ancient',
+  'Eternal','Timeless','Drifting','Hidden','Velvet','Neon','Glass','Forgotten',
 ];
 
-/** Mode-specific single-word pools */
-const _SW_MODE_NAMES = {
-  'top':             ['Peak','Crest','Crown','Apex','Summit','Prime','Height','Vault'],
-  'library':         ['Archive','Legacy','Depth','Library','Collection','Catalog'],
-  'recent':          ['Fresh','Current','Stream','Pulse','Loop','Wave','Flow'],
-  'mix':             ['Velvet','Ember','Dusk','Echo','Nova','Glow','Drift','Bloom'],
-  'recommendations': ['Soul','Echo','Lunar','Serene','Taste','Aurora','Curated'],
-  'similar-tracks':  ['Kindred','Echo','Affinity','Vibe','Prism','Linked','Kin'],
-  'similar-artists': ['Kindred','Affinity','Vibe','Prism','Linked','Kin','Echo'],
-};
+/** Noun bank — places, space, nature, mythology, emotion, time. */
+const _NAME_NOUNS = [
+  // space
+  'Horizon','Orbit','Nebula','Eclipse','Comet','Nova','Zenith','Meridian',
+  'Solstice','Constellation','Cosmos','Galaxy','Halo','Aurora','Starlight','Satellite',
+  // nature
+  'Tides','Storm','Tempest','Cascade','Glacier','Canyon','Meadow','Grove',
+  'Summit','Valley','Wildfire','Monsoon','Frost','Ember','Bloom','Thicket',
+  'Harbor','Lagoon','Prairie','Oasis',
+  // mythology
+  'Phoenix','Oracle','Siren','Valkyrie','Elysium','Odyssey','Atlas','Titan',
+  'Muse','Chimera',
+  // emotion / abstract
+  'Echo','Echoes','Mirage','Dreams','Reverie','Pulse','Drift','Wanderlust',
+  'Shadows','Sparks','Voyage','Whisper','Serenade','Solitude',
+  // places / time
+  'Skyline','Twilight','Daybreak','Sanctuary','Labyrinth','Wilderness',
+];
 
 /** Pick a random element from a pool array */
-function _swPick(pool) {
-  if (!pool || !pool.length) return 'Echon';
-  return pool[Math.floor(Math.random() * pool.length)];
-}
+function _nameRndPick(pool) { return pool[Math.floor(Math.random() * pool.length)]; }
 
 /**
- * Derive a clean single word from an artist name.
- * e.g. "Radiohead" → "Radiohead", "Daft Punk" → "Daft"
+ * Compose one candidate name from the word banks. Mostly two words
+ * ("Adjective Noun") to match the target style; occasionally a single
+ * strong noun, or a rarer three-word combination for extra variety.
  */
-function _artistToWord(artistName) {
-  if (!artistName) return null;
-  // Use the first word of the artist name, letters only, properly capitalised
-  const word = artistName.trim().split(/\s+/)[0].replace(/[^a-zA-Z]/g, '');
-  if (word.length < 2) return null;
-  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-}
-
-/**
- * Derive a clean single word from a genre name when no pool match exists.
- */
-function _genreToWord(genre) {
-  const words = genre.replace(/[^a-zA-Z\s]/g, '').trim().split(/\s+/);
-  const word  = (words[0] || 'Vibe');
-  return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-}
-
-/**
- * Get a single-word name for a genre/tag string.
- * Exact → partial keyword → derive from genre string.
- */
-function _singleWordForGenre(genre) {
-  if (!genre) return _swPick(_SW_FALLBACK_NAMES);
-  const t = genre.toLowerCase().trim();
-  if (_SW_GENRE_NAMES[t]) return _swPick(_SW_GENRE_NAMES[t]);
-  for (const [key, pool] of Object.entries(_SW_GENRE_NAMES)) {
-    if (t.includes(key) || key.includes(t)) return _swPick(pool);
+function _composePlaylistName() {
+  const r = Math.random();
+  if (r < 0.12) {
+    return _nameRndPick(_NAME_NOUNS);
   }
-  return _genreToWord(genre);
+  if (r < 0.90) {
+    return `${_nameRndPick(_NAME_ADJECTIVES)} ${_nameRndPick(_NAME_NOUNS)}`;
+  }
+  const a1 = _nameRndPick(_NAME_ADJECTIVES);
+  let   a2 = _nameRndPick(_NAME_ADJECTIVES);
+  if (a2 === a1) a2 = _nameRndPick(_NAME_ADJECTIVES);
+  return `${a1} ${a2} ${_nameRndPick(_NAME_NOUNS)}`;
+}
+
+/** Every saved playlist title, lowercased — read fresh from storage
+ *  every time so it's accurate regardless of which screens have
+ *  loaded yet or whether their in-memory caches are warm. */
+function _loadAllPlaylistTitles() {
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem('lw_playlists') || '[]'); } catch {}
+  return new Set(saved.map(p => (p.title || '').toLowerCase().trim()));
+}
+
+/**
+ * Generate a playlist name guaranteed unique among saved playlists.
+ * Never appends numbers — if a composed name collides, another is
+ * composed from the same banks (widening to a rarer 3-word shape in
+ * the essentially unreachable case of many repeated collisions).
+ */
+function _generateUniquePlaylistName() {
+  const taken = _loadAllPlaylistTitles();
+  let name;
+  for (let attempt = 0; attempt < 80; attempt++) {
+    name = _composePlaylistName();
+    if (!taken.has(name.toLowerCase())) return name;
+  }
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const a1 = _nameRndPick(_NAME_ADJECTIVES);
+    let   a2 = _nameRndPick(_NAME_ADJECTIVES);
+    if (a2 === a1) a2 = _nameRndPick(_NAME_ADJECTIVES);
+    name = `${a1} ${a2} ${_nameRndPick(_NAME_NOUNS)}`;
+    if (!taken.has(name.toLowerCase())) return name;
+  }
+  return name; // practically unreachable — banks give tens of thousands of combos
 }
 
 /**
@@ -245,74 +188,37 @@ function _generatePlaylistSubtitle(mode, inputs) {
 }
 
 /**
- * Ensure the generated name is unique among saved playlists.
- * Appends a short random suffix to keep it single-word.
+ * Ensure a specific base name is unique among saved playlists.
+ * Kept for backward compatibility with older call sites that pass a
+ * pre-derived base name. If taken, blends in a bank word to keep it
+ * thematic rather than ever appending a number; falls back to a
+ * fresh bank-composed name if that still collides.
  */
 function _deduplicateName(baseName) {
-  let saved = [];
-  try { saved = JSON.parse(localStorage.getItem('lw_playlists') || '[]'); } catch {}
-  const taken = new Set(saved.map(p => (p.title || '').toLowerCase().trim()));
+  const taken = _loadAllPlaylistTitles();
+  const base  = (baseName || '').trim() || _generateUniquePlaylistName();
+  if (!taken.has(base.toLowerCase())) return base;
 
-  if (!taken.has(baseName.toLowerCase())) return baseName;
-
-  // Use a sequential counter — no random numbers or symbols
-  for (let i = 2; i <= 99; i++) {
-    const candidate = baseName + i;
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const candidate = `${base} ${_nameRndPick(_NAME_NOUNS)}`;
     if (!taken.has(candidate.toLowerCase())) return candidate;
   }
-  return baseName + '2';
+  return _generateUniquePlaylistName();
 }
 
 /**
- * Generate a smart, unique SINGLE-WORD playlist name.
- * Called from generatePlaylist(), startMixFromTrack(), and genre-explore flows.
+ * Generate a smart, unique playlist name.
+ * Called from generatePlaylist(), startMixFromTrack(), genre-explore
+ * flows, and the Discover screen's Save feature.
  *
- * @param {string} mode
- * @param {object} [inputs]  — { tagInput, seedTrackName, seedArtistName, seedArtistInput }
- * @param {Array}  [tracks]  — optional track list for artist-inspired naming
+ * Mode/inputs/tracks are accepted for backward compatibility with
+ * existing call sites, but naming is now deliberately mode-agnostic:
+ * every playlist draws from the same large, high-quality word banks
+ * so names stay varied across the whole app rather than repeating
+ * within a given mode or genre.
  */
 function _generateSmartPlaylistName(mode, inputs, tracks) {
-  const pool = tracks || state.playlist || [];
-  let name;
-
-  switch (mode) {
-    case 'tag':
-      name = _singleWordForGenre(inputs?.tagInput || '');
-      break;
-
-    case 'similar-tracks':
-    case 'start-mix': {
-      const artist = inputs?.seedArtistName || inputs?.seedArtistInput || '';
-      name = (artist ? _artistToWord(artist) : null) || _swPick(_SW_MODE_NAMES['similar-tracks']);
-      break;
-    }
-    case 'similar-artists': {
-      const artist = inputs?.seedArtistInput || inputs?.seedArtistName || '';
-      name = (artist ? _artistToWord(artist) : null) || _swPick(_SW_MODE_NAMES['similar-artists']);
-      break;
-    }
-    case 'top':
-    case 'library':
-      name = _swPick(_SW_MODE_NAMES['top']);
-      break;
-
-    case 'recent':
-      name = _swPick(_SW_MODE_NAMES['recent']);
-      break;
-
-    case 'mix':
-    case 'recommendations': {
-      const topArtist = pool.length ? pool[0].artist : '';
-      name = (topArtist ? _artistToWord(topArtist) : null)
-          || _swPick(_SW_MODE_NAMES[mode] || _SW_FALLBACK_NAMES);
-      break;
-    }
-    default:
-      name = _swPick(_SW_FALLBACK_NAMES);
-  }
-
-  if (!name) name = _swPick(_SW_FALLBACK_NAMES);
-  return _deduplicateName(name);
+  return _generateUniquePlaylistName();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2724,13 +2630,15 @@ function escAttr(str) { if (!str) return ''; return String(str).replace(/'/g,"\\
 
 /**
  * Bind long-press copy to all matching items inside `container`.
- * @param {Element} container  — the wrapper element to query inside
- * @param {string}  selector   — CSS selector for track items (default: '[data-lp-name]')
+ * @param {Element} container      — the wrapper element to query inside
+ * @param {string}  selector       — CSS selector for track items (default: '[data-lp-name]')
+ * @param {string}  copiedMessage  — toast text on success (default: 'Copied')
  */
-function bindLongPressCopy(container, selector) {
+function bindLongPressCopy(container, selector, copiedMessage) {
   if (!container) return;
   const SEL      = selector || '[data-lp-name]';
   const LONG_MS  = 500;
+  const MSG      = copiedMessage || 'Copied';
 
   container.querySelectorAll(SEL).forEach(item => {
     if (item._lpBound) return;
@@ -2755,10 +2663,10 @@ function bindLongPressCopy(container, selector) {
         const text   = artist ? `${name} — ${artist}` : name;
         if (navigator.clipboard?.writeText) {
           navigator.clipboard.writeText(text)
-            .then(() => showToast('Copied', 'success'))
-            .catch(() => _lpFallbackCopy(text));
+            .then(() => showToast(MSG, 'success'))
+            .catch(() => _lpFallbackCopy(text, MSG));
         } else {
-          _lpFallbackCopy(text);
+          _lpFallbackCopy(text, MSG);
         }
         try { navigator.vibrate?.(30); } catch {}
       }, LONG_MS);
@@ -2781,7 +2689,7 @@ function bindLongPressCopy(container, selector) {
 }
 
 /** Clipboard fallback for older Android WebViews without navigator.clipboard */
-function _lpFallbackCopy(text) {
+function _lpFallbackCopy(text, copiedMessage) {
   try {
     const ta = document.createElement('textarea');
     ta.value = text;
@@ -2790,7 +2698,7 @@ function _lpFallbackCopy(text) {
     ta.focus(); ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
-    showToast('Copied', 'success');
+    showToast(copiedMessage || 'Copied', 'success');
   } catch { showToast('Could not copy', 'error'); }
 }
 function sanitizeFilename(name) { return name.replace(/[^a-z0-9\-_\s]/gi,'').replace(/\s+/g,'_').substring(0,60)||'playlist'; }

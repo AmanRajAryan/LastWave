@@ -61,6 +61,7 @@ window.screen_settings = function () {
 function _goBack() {
   document.body.classList.remove('settings-open');
   delete window._lwScreenBackHandlers['settings'];
+  _stopScrobbleDayTicker();
   // Pop nav history stack if possible, otherwise fall back to home
   if (typeof _navHistory !== 'undefined' && _navHistory.length > 0) {
     const prev = _navHistory.pop();
@@ -129,6 +130,83 @@ function _refreshApiSection() {
   if (loggedInEl) loggedInEl.classList.toggle('hidden', !loggedIn);
   if (headerEl)   headerEl.classList.toggle('hidden', loggedIn);
   if (userLabel)  userLabel.textContent = state.username || '';
+
+  if (loggedIn) {
+    _refreshScrobblingDuration();
+    _startScrobbleDayTicker();
+  } else {
+    _stopScrobbleDayTicker();
+    const scrobEl = document.getElementById('apiSignedInScrobbling');
+    if (scrobEl) scrobEl.textContent = '';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  "Scrobbling for N days" — live day count under the username
+//
+//  The Last.fm registration date never changes, so it's fetched via
+//  user.getInfo AT MOST ONCE per username and cached indefinitely in
+//  localStorage. Every subsequent render (including the once-an-hour
+//  tick that keeps the day count current) recomputes the day count
+//  from that cached timestamp — no repeat network requests.
+// ─────────────────────────────────────────────────────────────
+const LW_SCROBBLE_CACHE_KEY = 'lw_registered_cache';
+let _scrobbleDayTicker = null;
+
+function _readScrobbleCache() {
+  try { return JSON.parse(localStorage.getItem(LW_SCROBBLE_CACHE_KEY) || 'null'); }
+  catch { return null; }
+}
+
+function _renderScrobblingDays(registeredUnixtime) {
+  const el = document.getElementById('apiSignedInScrobbling');
+  if (!el) return;
+  if (!registeredUnixtime) { el.textContent = ''; return; }
+  const days = Math.max(0, Math.floor((Date.now() - registeredUnixtime * 1000) / 86400000));
+  el.textContent = `Scrobbling for ${days.toLocaleString()} day${days === 1 ? '' : 's'}`;
+}
+
+async function _refreshScrobblingDuration() {
+  const el = document.getElementById('apiSignedInScrobbling');
+  if (!el || !state.username) return;
+
+  const cache = _readScrobbleCache();
+  if (cache && cache.username === state.username && cache.registeredUnixtime) {
+    _renderScrobblingDays(cache.registeredUnixtime);
+    return; // already cached — no API call needed
+  }
+
+  // No valid cache for this username yet — fetch once, then cache forever.
+  try {
+    const data = await lfmCall({ method: 'user.getinfo', user: state.username });
+    const ts = parseInt(data?.user?.registered?.unixtime, 10);
+    if (ts && !isNaN(ts)) {
+      localStorage.setItem(LW_SCROBBLE_CACHE_KEY, JSON.stringify({ username: state.username, registeredUnixtime: ts }));
+      _renderScrobblingDays(ts);
+    }
+  } catch (e) {
+    // Secondary stat — fail silently, no toast, keep the UI clean.
+    console.warn('[Settings] Could not load scrobbling duration:', e.message);
+  }
+}
+
+function _startScrobbleDayTicker() {
+  _stopScrobbleDayTicker();
+  // Hourly is plenty to catch the local-midnight day rollover without
+  // ever making a repeat network request — the tick just re-reads cache.
+  _scrobbleDayTicker = setInterval(() => {
+    const cache = _readScrobbleCache();
+    if (cache && cache.username === state.username && cache.registeredUnixtime) {
+      _renderScrobblingDays(cache.registeredUnixtime);
+    }
+  }, 60 * 60 * 1000);
+}
+
+function _stopScrobbleDayTicker() {
+  if (_scrobbleDayTicker) {
+    clearInterval(_scrobbleDayTicker);
+    _scrobbleDayTicker = null;
+  }
 }
 
 function logoutApiCredentials() {
@@ -142,6 +220,7 @@ function logoutApiCredentials() {
       localStorage.removeItem('lw_username');
       localStorage.removeItem('lw_apikey');
       localStorage.removeItem('lw_apisecret');
+      localStorage.removeItem(LW_SCROBBLE_CACHE_KEY);
       const elUser   = document.getElementById('settingsUsername');
       const elKey    = document.getElementById('settingsApiKey');
       const elSecret = document.getElementById('settingsApiSecret');
@@ -252,12 +331,15 @@ function clearAllData() {
       state.apiSecret  = '';
       state.sessionKey = '';
       loadSettings();
+      _stopScrobbleDayTicker();
       const elUser   = document.getElementById('settingsUsername');
       const elKey    = document.getElementById('settingsApiKey');
       const elSecret = document.getElementById('settingsApiSecret');
+      const elScrob  = document.getElementById('apiSignedInScrobbling');
       if (elUser)   elUser.value   = '';
       if (elKey)    elKey.value    = '';
       if (elSecret) elSecret.value = '';
+      if (elScrob)  elScrob.textContent = '';
       _refreshToggles();
       _refreshPaletteActive();
       _refreshSeenCount();

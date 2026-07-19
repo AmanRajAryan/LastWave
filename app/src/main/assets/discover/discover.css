@@ -8,6 +8,31 @@
 
 .discover-screen { padding-top: 8px; }
 
+/* ══════════════════════════════════════════════════════════════
+   NAVIGATION OVERRIDES — active while the Discover screen is open
+   (body.discover-open toggled by nav.js on navigateTo)
+
+   Unlike Settings' instant display:none, this animates: the nav
+   slides down, fades out, and collapses its height in one smooth
+   pass, and reverses just as smoothly when Discover is left. The
+   topbar is intentionally left untouched — it stays visible.
+   ══════════════════════════════════════════════════════════════ */
+body.discover-open .bottom-nav {
+  height: 0;
+  padding-bottom: 0;
+  transform: translateY(100%);
+  opacity: 0;
+  box-shadow: none;
+  pointer-events: none;
+}
+
+/* The feed's own bottom padding reserves room for the nav bar by default
+   (via .page-scroll); once that bar is gone, drop it back down to just
+   the safe-area inset so the feed truly uses the freed screen height. */
+body.discover-open .discover-screen.page-scroll {
+  padding-bottom: calc(var(--safe-bottom, 0px) + 16px);
+}
+
 /* ── Header (title + Shuffle button on the same row) ──────── */
 .discover-header {
   display: flex;
@@ -28,12 +53,28 @@
   color: var(--text2);
   margin-top: 4px;
 }
+.discover-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.discover-save-btn,
 .discover-shuffle-btn { flex-shrink: 0; }
+.discover-save-btn .material-symbols-rounded,
 .discover-shuffle-btn .material-symbols-rounded {
   font-size: 24px;
   color: var(--md-primary);
   font-variation-settings: 'FILL' 0;
   display: inline-block;
+}
+.discover-save-btn.discover-save-pop .material-symbols-rounded {
+  animation: disc-save-pop 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+@keyframes disc-save-pop {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.25); }
+  100% { transform: scale(1); }
 }
 .discover-shuffle-btn.discover-shuffle-spinning .material-symbols-rounded {
   animation: disc-shuffle-spin 0.6s cubic-bezier(0.4, 0, 0.2, 1);

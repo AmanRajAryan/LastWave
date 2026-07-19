@@ -12,9 +12,14 @@
       <div class="discover-title">Discover</div>
       <div class="discover-sub">Fresh tracks, powered by your Last.fm taste</div>
     </div>
-    <button class="icon-btn discover-shuffle-btn" id="discoverShuffleBtn" onclick="_discShuffleNow()" title="Surprise me" aria-label="Surprise me">
-      <span class="material-symbols-rounded">shuffle</span>
-    </button>
+    <div class="discover-header-actions">
+      <button class="icon-btn discover-save-btn" id="discoverSaveBtn" onclick="_discSaveAsPlaylist()" title="Save as playlist" aria-label="Save as playlist">
+        <span class="material-symbols-rounded">bookmark_add</span>
+      </button>
+      <button class="icon-btn discover-shuffle-btn" id="discoverShuffleBtn" onclick="_discShuffleNow()" title="Surprise me" aria-label="Surprise me">
+        <span class="material-symbols-rounded">shuffle</span>
+      </button>
+    </div>
   </div>
 
   <!-- ── Loading skeleton (first load only) ─────────────────────
