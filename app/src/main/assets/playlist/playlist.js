@@ -674,19 +674,17 @@ function _doExportM3U(pl) {
 // ── Delete ────────────────────────────────────────────────────
 // ── Generate Similar ─────────────────────────────────────────
 /**
- * Derives the next sequential name for a "similar" playlist.
- * "Echo"   → "Echo 2"
- * "Echo 2" → "Echo 3"  (strips trailing number before incrementing)
- * Keeps incrementing until no stored playlist has that title.
+ * Derives a name for a new "similar" playlist generated from an
+ * existing one. Uses the same app-wide multi-bank unique name
+ * generator as every other playlist creation flow — no numeric
+ * suffixes (e.g. no more "Echo 2", "Echo 3").
  */
 function _plNextSimilarName(sourceName) {
-  const playlists = _plLoad();
-  const titles    = new Set(playlists.map(p => p.title));
-  // Strip trailing " N" so "Echo 2" → base "Echo"
-  const base = sourceName.replace(/\s+\d+$/, '').trim();
-  let n = 2;
-  while (titles.has(`${base} ${n}`)) n++;
-  return `${base} ${n}`;
+  if (typeof _generateSmartPlaylistName === 'function') {
+    return _generateSmartPlaylistName();
+  }
+  // Extremely defensive fallback if app.js somehow isn't loaded yet.
+  return `${sourceName || 'Playlist'} Mix`;
 }
 
 /**

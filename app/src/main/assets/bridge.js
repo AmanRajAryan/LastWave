@@ -288,12 +288,18 @@ const Platform = {
    * for Material You dynamic theming.
    * Returns null when not available (browser, or Android < 8.1).
    *
+   * Native side: AndroidBridge.getMaterialYouColors() — on Android 12+ this
+   * reads the real Monet-generated system_accent1/2/3 color slots (the same
+   * ones dynamicDarkColorScheme() / DynamicColors use), not raw wallpaper
+   * pixels. On Android 8.1–11 it falls back to WallpaperManager's
+   * WallpaperColors as a best-effort approximation.
+   *
    * JS call: Platform.getWallpaperColors()
    */
   getWallpaperColors() {
-    if (Platform.isNative() && window.AndroidBridge.getWallpaperColors) {
+    if (Platform.isNative() && window.AndroidBridge.getMaterialYouColors) {
       try {
-        const raw = window.AndroidBridge.getWallpaperColors();
+        const raw = window.AndroidBridge.getMaterialYouColors();
         return raw ? JSON.parse(raw) : null;
       } catch { return null; }
     }

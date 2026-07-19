@@ -220,6 +220,17 @@ input, textarea { user-select: text; }
   flex-shrink: 0;
   position: relative;
   z-index: 100;
+  overflow: hidden;
+  transform: translateY(0);
+  opacity: 1;
+  /* Transition lives on the base rule (not just the hidden state) so it
+     animates smoothly both when collapsing AND when restoring — see
+     body.discover-open .bottom-nav in discover/discover.css */
+  transition: transform 0.32s cubic-bezier(0.2, 0, 0, 1),
+              height 0.32s cubic-bezier(0.2, 0, 0, 1),
+              padding-bottom 0.32s cubic-bezier(0.2, 0, 0, 1),
+              opacity 0.24s ease,
+              box-shadow 0.24s ease;
 }
 
 /*

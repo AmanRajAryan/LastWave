@@ -11,7 +11,7 @@
 // a stale file. Previously only applied to CSS; HTML/JS had no cache-busting
 // at all, which could silently keep old generation logic running after a
 // rebuild even though the source file on disk was already fixed.
-const BUILD_VERSION = '7';
+const BUILD_VERSION = '9';
 
 const PAGE_TITLES = {
   home:      'LastWave',
@@ -174,6 +174,10 @@ async function navigateTo(page, opts) {
 
   // Toggle settings-open — controls bottom nav / search / avatar visibility
   document.body.classList.toggle('settings-open', page === 'settings');
+
+  // Toggle discover-open — controls bottom nav visibility/animation on Discover
+  // (CSS lives in discover/discover.css, next to the rest of the screen's styles)
+  document.body.classList.toggle('discover-open', page === 'discover');
 
   state.currentPage = page;
   

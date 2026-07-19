@@ -471,6 +471,8 @@ function _discRenderNextBatch(isFirst) {
     const el = document.createElement('div');
     el.className = 'disc-card ripple-item';
     el.setAttribute('role', 'listitem');
+    el.dataset.lpName   = track.name;
+    el.dataset.lpArtist = track.artist;
     el.style.animationDelay = `${Math.min(i, 8) * 0.03}s`;
     el.innerHTML = _discCardInnerHTML(track, reason);
 
@@ -493,6 +495,11 @@ function _discRenderNextBatch(isFirst) {
 
   if (typeof _initRipples === 'function') {
     _initRipples(document.querySelector('[data-screen="discover"]'));
+  }
+  if (typeof bindLongPressCopy === 'function') {
+    // '_lpBound' guard inside bindLongPressCopy makes re-scanning the whole
+    // list on every batch cheap — already-bound cards are skipped.
+    bindLongPressCopy(list, '[data-lp-name]', '\u2713 Copied to clipboard');
   }
 
   // Keep the pool topped up well ahead of the user reaching the bottom.
@@ -980,4 +987,113 @@ function _closeDiscDropdown() {
   el.classList.add('track-dropdown-leaving');
   el.addEventListener('animationend', () => el.remove(), { once: true });
   setTimeout(() => { if (el.parentNode) el.remove(); }, 250);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SAVE DISCOVER — bookmarks all currently visible feed cards as
+//  a new playlist, exactly like a playlist created from Create.
+//
+//  Purely reads the already-rendered DOM (card dataset + artwork
+//  already on screen) — never touches the recommendation engine,
+//  never re-fetches or regenerates anything, so it's instant.
+//  Writes straight to the same 'lw_playlists' localStorage key
+//  used by playlist.js, in the same { id, title, subtitle, mode,
+//  tracks, date } shape, so it shows up in the Playlist tab
+//  immediately (whether or not playlist.js happens to be loaded
+//  yet this session).
+// ══════════════════════════════════════════════════════════════
+const _DISC_PL_STORAGE_KEY = 'lw_playlists';
+const _DISC_PL_MAX_SAVED   = 20;
+
+// Reads directly from localStorage — does not assume playlist.js
+// (and its in-memory _plCache) has been loaded this session yet.
+function _discLoadSavedPlaylists() {
+  try { return JSON.parse(localStorage.getItem(_DISC_PL_STORAGE_KEY) || '[]'); }
+  catch { return []; }
+}
+
+// Naming itself lives in app.js (_generateSmartPlaylistName /
+// _generateUniquePlaylistName) so Discover draws from the exact same
+// large word banks — and the exact same uniqueness check — as every
+// other playlist-creation flow in the app (Create, Recommendations,
+// Genre Mix, My Mix, Library, etc.). app.js is always loaded before
+// any screen script, so it's safe to call directly here.
+function _discUniquePlaylistName() {
+  if (typeof _generateSmartPlaylistName === 'function') {
+    return _generateSmartPlaylistName();
+  }
+  // Extremely defensive fallback, should never be hit in practice.
+  return `Playlist ${Date.now()}`;
+}
+
+
+// Snapshot of exactly what's on screen right now, in visible (DOM) order.
+function _discCurrentVisibleTracks() {
+  const cards = document.querySelectorAll('#discoverList .disc-card');
+  const tracks = [];
+  cards.forEach(card => {
+    const name   = card.dataset.lpName;
+    const artist = card.dataset.lpArtist;
+    if (!name || !artist) return;
+    const img   = card.querySelector('.disc-card-art');
+    const image = (img && img.src && img.style.display !== 'none') ? img.src : '';
+    tracks.push({
+      name,
+      artist,
+      url:       `https://www.last.fm/music/${encodeURIComponent(artist)}/_/${encodeURIComponent(name)}`,
+      image,
+      listeners: null,
+      playcount: null,
+      match:     null,
+      album:     '',
+    });
+  });
+  return tracks;
+}
+
+// Order-preserving identity for a track list — used to detect "this exact
+// Discover list is already saved" without caring about title.
+function _discTrackSignature(tracks) {
+  return tracks.map(t => `${t.name}|${t.artist}`.toLowerCase()).join('\u241F');
+}
+
+function _discSaveAsPlaylist() {
+  const tracks = _discCurrentVisibleTracks();
+  if (!tracks.length) {
+    showToast('Nothing to save yet', 'error');
+    return;
+  }
+
+  const saved     = _discLoadSavedPlaylists();
+  const signature = _discTrackSignature(tracks);
+
+  const dupe = saved.find(p => p.mode === 'discover' && p.discoverSignature === signature);
+  if (dupe) {
+    showToast(`Already saved as "${dupe.title}"`, 'error');
+    return;
+  }
+
+  const title = _discUniquePlaylistName();
+  saved.push({
+    id:                Date.now(),
+    title,
+    subtitle:          'Discover Feed',
+    mode:              'discover',
+    tracks,
+    date:              Date.now(),
+    discoverSignature: signature,
+  });
+
+  if (saved.length > _DISC_PL_MAX_SAVED) saved.splice(0, saved.length - _DISC_PL_MAX_SAVED);
+  localStorage.setItem(_DISC_PL_STORAGE_KEY, JSON.stringify(saved));
+
+  // Invalidate the Playlist screen's in-memory cache if it's already
+  // loaded this session, so it re-reads from storage on next visit.
+  if (typeof _plCache !== 'undefined') _plCache = null;
+
+  const btn = document.getElementById('discoverSaveBtn');
+  btn?.classList.add('discover-save-pop');
+  setTimeout(() => btn?.classList.remove('discover-save-pop'), 350);
+
+  showToast(`\u2713 Playlist saved as "${title}"`, 'success');
 }

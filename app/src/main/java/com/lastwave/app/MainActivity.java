@@ -2,6 +2,11 @@ package com.lastwave.app;
 
 import android.graphics.Color;
 import android.Manifest;
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.AnimatorSet;
+import android.animation.ObjectAnimator;
+import android.view.animation.AccelerateDecelerateInterpolator;
 import android.app.WallpaperManager;
 import android.annotation.SuppressLint;
 import android.content.Intent;
@@ -75,6 +80,12 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS_NAME       = "lastwave_prefs";
     private static final String PREF_SESSION_KEY = "lw_session_key";
 
+    // Flips true once the WebView reports onPageFinished (or a short safety
+    // timeout elapses) — lets the Android 12+ splash hold itself on screen
+    // until there's real content behind it, so removing it never reveals a
+    // blank flash of background first.
+    private volatile boolean webContentReady = false;
+
     // ── File chooser (used by the Settings → Restore Data <input type="file">) ──
     private ValueCallback<Uri[]> filePathCallback;
     private static final int FILE_CHOOSER_REQUEST_CODE = 51426;
@@ -82,12 +93,40 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // ── Dismiss native Android 12+ splash immediately ──────────────────────
-        // (if running on Android 12+, this will dismiss the native SplashScreen
-        // that was shown by the theme. On older Android, this is a no-op.)
+        // ── Android 12+ native splash: hold until content is ready, then
+        // exit with a smooth scale + fade transition (no jump-cut). ─────────
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            SplashScreen.installSplashScreen(this).setOnExitAnimationListener(splashScreenView -> {
-                splashScreenView.remove();
+            SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
+
+            // Keep the splash up until the WebView has actually painted its
+            // first frame (flipped in onPageFinished below, or by the safety
+            // timeout after loadUrl) — this is what prevents a flash of
+            // blank/background between the splash disappearing and Home
+            // appearing. It only ever waits for real readiness or a bounded
+            // timeout; it never adds artificial delay to a fast load.
+            splashScreen.setKeepOnScreenCondition(() -> !webContentReady);
+
+            splashScreen.setOnExitAnimationListener(splashScreenView -> {
+                final View icon = splashScreenView.getIconView();
+                final long duration = 260L;
+
+                ObjectAnimator scaleX = ObjectAnimator.ofFloat(icon, View.SCALE_X, 1f, 1.06f);
+                ObjectAnimator scaleY = ObjectAnimator.ofFloat(icon, View.SCALE_Y, 1f, 1.06f);
+                ObjectAnimator fade   = ObjectAnimator.ofFloat(splashScreenView.getView(), View.ALPHA, 1f, 0f);
+                scaleX.setDuration(duration);
+                scaleY.setDuration(duration);
+                fade.setDuration(duration);
+
+                AnimatorSet exit = new AnimatorSet();
+                exit.playTogether(scaleX, scaleY, fade);
+                exit.setInterpolator(new AccelerateDecelerateInterpolator());
+                exit.addListener(new AnimatorListenerAdapter() {
+                    @Override
+                    public void onAnimationEnd(Animator animation) {
+                        splashScreenView.remove();
+                    }
+                });
+                exit.start();
             });
         }
 
@@ -99,6 +138,20 @@ public class MainActivity extends AppCompatActivity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
+
+        // Without this, Android 10+ (API 29+) automatically draws a translucent
+        // scrim OVER a transparent system bar to guarantee icon legibility —
+        // even though the color is TRANSPARENT, the bar still visually reads as
+        // a solid/shaded strip instead of true edge-to-edge. This is the actual
+        // cause of the gesture nav area looking like a solid background; it is
+        // NOT a padding or inset problem. Disabling it lets our own WebView
+        // content show through cleanly, exactly like modern edge-to-edge apps.
+        // Works for both gesture navigation and 3-button navigation, since it
+        // affects how the bar is painted, not which navigation mode is active.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            getWindow().setNavigationBarContrastEnforced(false);
+            getWindow().setStatusBarContrastEnforced(false);
+        }
 
         setContentView(R.layout.activity_main);
 
@@ -205,9 +258,21 @@ public class MainActivity extends AppCompatActivity {
             public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
                 return assetLoader.shouldInterceptRequest(android.net.Uri.parse(url));
             }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                // Real content is now painted — safe to let the splash exit.
+                webContentReady = true;
+            }
         });
 
         webView.loadUrl("https://appassets.androidplatform.net/assets/index.html");
+
+        // Safety net only — if the page somehow never fires onPageFinished,
+        // don't hold the splash forever. This is a bound, not a delay: a
+        // normal local asset load finishes in well under this window.
+        webView.postDelayed(() -> webContentReady = true, 1500);
 
         // ── Request runtime permissions ───────────────────────────────────────
         // On Android 13+, WRITE_EXTERNAL_STORAGE is not available; the app uses

@@ -656,6 +656,17 @@ body.settings-open #headerUserBtn {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Live scrobbling-duration subtitle — sits under the username,
+   quieter than the name so it reads as secondary metadata. */
+.api-signed-in-scrobbling {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text2);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .api-logout-btn {
   font-size: 14px;
 }
